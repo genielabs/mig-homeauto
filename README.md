@@ -1,5 +1,5 @@
-[![Build status](https://ci.appveyor.com/api/projects/status/lsiafy3f3lhgpic4?svg=true)](https://ci.appveyor.com/project/genemars/mig-homeauto)
-[![NuGet](https://img.shields.io/nuget/v/MIG.HomeAutomation.svg)](https://www.nuget.org/packages/MIG/)
+[![Build status](https://ci.appveyor.com/api/projects/status/m9gpdbs7toa1348y?svg=true)](https://ci.appveyor.com/project/genemars/mig-homeauto)
+[![NuGet](https://img.shields.io/nuget/v/MIG.HomeAutomation.svg)](https://www.nuget.org/packages/MIG.HomeAutomation/)
 ![License](https://img.shields.io/github/license/genielabs/mig-homeauto.svg)
 
 # API for Home Automation (X10 and Z-Wave)
