@@ -2,9 +2,11 @@
 [![NuGet](https://img.shields.io/nuget/v/MIG.HomeAutomation.svg)](https://www.nuget.org/packages/MIG.HomeAutomation/)
 ![License](https://img.shields.io/github/license/genielabs/mig-homeauto.svg)
 
-# API for Home Automation (X10 and Z-Wave)
+# MIG.HomeAutomation
 
-Adds Home Automation API commands to *[MIG](https://github.com/genielabs/mig-service-dotnet)*:
+*[MIG](https://github.com/genielabs/mig-service-dotnet)* Interface for controlling home automation devices.
+
+Implemented API domains:
 
 - [HomeAutomation.X10 API](https://genielabs.github.io/HomeGenie/api/mig/mig_api_x10.html)
 - [HomeAutomation.ZWave API](https://genielabs.github.io/HomeGenie/api/mig/mig_api_zwave.html)

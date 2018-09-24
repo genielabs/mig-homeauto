@@ -9,7 +9,7 @@
         <licenseUrl>https://github.com/genielabs/mig-homeauto/blob/master/LICENSE</licenseUrl>
         <projectUrl>https://github.com/genielabs/mig-homeauto/</projectUrl>
         <requireLicenseAcceptance>false</requireLicenseAcceptance>
-        <description>Interface for MIG service that adds HomeAutomation API commands for controlling X10 and Z-Wave devices.</description>
+        <description>Interface for MIG service that adds HomeAutomation commands for controlling X10 and Z-Wave devices.</description>
         <summary>HomeAutomation interface for MIG (Z-Wave and X10)</summary>
         <releaseNotes></releaseNotes>
         <copyright>G-Labs</copyright>
