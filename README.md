@@ -13,13 +13,14 @@ Implemented API domains:
 
 ## Supported Hardware
 
-- **X10**: CM11 and CM15+RF
-- **Z-Wave**: most z-wave serial controllers
+- **X10**: CM11, CM15, CM19
+- **Z-Wave**: most Z-Wave serial controllers
 
 ## Related Projects
 
 - https://github.com/genielabs/mig-service-dotnet
 - https://github.com/genielabs/x10-lib-dotnet
+- https://github.com/genielabs/cm19-lib-dotnet
 - https://github.com/genielabs/zwave-lib-dotnet
 - https://github.com/genielabs/homegenie
 
