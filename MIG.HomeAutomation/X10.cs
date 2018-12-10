@@ -375,18 +375,31 @@ namespace MIG.Interfaces.HomeAutomation
 
         public X10()
         {
-            // Fix libusb symbolic link
-            string assemblyFolder = MigService.GetAssemblyDirectory(this.GetType().Assembly);
-            var libusblink = Path.Combine(assemblyFolder, "libusb-1.0.so");
-            // RaspBerry Pi armel dependency check and needed symlink
-            if ((File.Exists("/lib/arm-linux-gnueabi/libusb-1.0.so.0.1.0") || File.Exists("/lib/arm-linux-gnueabihf/libusb-1.0.so.0.1.0")) && !File.Exists(libusblink))
+            if (Environment.OSVersion.Platform == PlatformID.Unix || Environment.OSVersion.Platform == PlatformID.MacOSX)
             {
-                MigService.ShellCommand("ln", " -s \"/lib/arm-linux-gnueabi/libusb-1.0.so.0.1.0\" \"" + libusblink + "\"");
-            }
-            // Debian/Ubuntu 64bit dependency and needed symlink check
-            if (File.Exists("/lib/x86_64-linux-gnu/libusb-1.0.so.0") && !File.Exists(libusblink))
-            {
-                MigService.ShellCommand("ln", " -s \"/lib/x86_64-linux-gnu/libusb-1.0.so.0\" \"" + libusblink + "\"");
+                // Fix libusb symbolic link
+                string assemblyFolder = MigService.GetAssemblyDirectory(this.GetType().Assembly);
+                var libUsbLink = Path.Combine(assemblyFolder, "libusb-1.0.so");
+                if (File.Exists(libUsbLink)) File.Delete(libUsbLink);
+                // RaspBerry Pi arm-hf (hard-float) dependency check and needed symlink
+                if (File.Exists("/lib/arm-linux-gnueabihf/libusb-1.0.so.0.1.0"))
+                {
+                    MigService.ShellCommand("ln", " -s \"/lib/arm-linux-gnueabihf/libusb-1.0.so.0.1.0\" \"" + libUsbLink + "\"");
+                }
+                // RaspBerry Pi arm-el dependency check and needed symlink
+                else if (File.Exists("/lib/arm-linux-gnueabi/libusb-1.0.so.0.1.0"))
+                {
+                    MigService.ShellCommand("ln", " -s \"/lib/arm-linux-gnueabi/libusb-1.0.so.0.1.0\" \"" + libUsbLink + "\"");
+                }
+                // Debian/Ubuntu 64bit dependency and needed symlink check
+                else if (File.Exists("/lib/x86_64-linux-gnu/libusb-1.0.so.0"))
+                {
+                    MigService.ShellCommand("ln", " -s \"/lib/x86_64-linux-gnu/libusb-1.0.so.0\" \"" + libUsbLink + "\"");
+                }
+                // Remove CM19 kernel drivers to allow access to the device
+                MigService.ShellCommand("rmmod", " lirc_atiusb");
+                MigService.ShellCommand("rmmod", " ati_remote");
+                MigService.ShellCommand("rmmod", " rc_ati_x10");
             }
 
             // CM19 Transceiver driver
