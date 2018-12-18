@@ -123,44 +123,36 @@ namespace MIG.Interfaces.HomeAutomation
 
         public List<InterfaceModule> GetModules()
         {
+            InterfaceModule module = new InterfaceModule();
             List<InterfaceModule> modules = new List<InterfaceModule>();
-            if (x10Lib != null)
+            // CM15 / CM19 RF transceiver
+            if (portName == Cm15LibDriverPort || portName == Cm19LibDriverPort)
             {
-
-                InterfaceModule module = new InterfaceModule();
-
-                if (portName == Cm15LibDriverPort || portName == Cm19LibDriverPort)
+                module.Domain = this.GetDomain();
+                module.Address = "RF";
+                if (portName == Cm15LibDriverPort)
                 {
-                    // CM15 / CM19 RF transceiver
-                    module.Domain = this.GetDomain();
-                    module.Address = "RF";
-                    if (portName == Cm15LibDriverPort)
-                    {
-                        module.Description = "CM15 RF Transceiver";
-                    }
-                    else
-                    {
-                        module.Description = "CM19 RF Transceiver";
-                    }
-                    module.ModuleType = ModuleTypes.Sensor;
-                    modules.Add(module);
+                    module.Description = "CM15 Transceiver";
                 }
-
-                // Standard X10 modules
-                foreach (var kv in x10Lib.Modules)
+                else
                 {
-                    module = new InterfaceModule();
-                    module.Domain = this.GetDomain();
-                    module.Address = kv.Value.Code;
-                    module.ModuleType = ModuleTypes.Switch;
-                    module.Description = "X10 Module";
-                    modules.Add(module);
+                    module.Description = "CM19 Transceiver";
                 }
-
-                // CM-15 RF Security modules
-                modules.AddRange(securityModules);
-
+                module.ModuleType = ModuleTypes.Sensor;
+                modules.Add(module);
             }
+            // Standard X10 modules
+            foreach (var kv in x10Lib.Modules)
+            {
+                module = new InterfaceModule();
+                module.Domain = this.GetDomain();
+                module.Address = kv.Value.Code;
+                module.ModuleType = ModuleTypes.Switch;
+                module.Description = "X10 Module";
+                modules.Add(module);
+            }
+            // CM15 / CM19 RF Security modules
+            modules.AddRange(securityModules);
             return modules;
         }
 
@@ -558,12 +550,12 @@ namespace MIG.Interfaces.HomeAutomation
         private void Cm19LibOnRfDataReceived(object sender, CM19Lib.Events.RfDataReceivedEventArgs args)
         {
             var code = BitConverter.ToString(args.Data).Replace("-", " ");
-            OnInterfacePropertyChanged(this.GetDomain(), "CM19", "X10 RF Receiver", ModuleEvents.Receiver_RawData, code);
+            OnInterfacePropertyChanged(this.GetDomain(), "RF", "X10 RF Receiver", ModuleEvents.Receiver_RawData, code);
             if (rfPulseTimer == null)
             {
                 rfPulseTimer = new Timer(delegate(object target)
                 {
-                    OnInterfacePropertyChanged(this.GetDomain(), "CM19", "X10 RF Receiver", ModuleEvents.Receiver_RawData, "");
+                    OnInterfacePropertyChanged(this.GetDomain(), "RF", "X10 RF Receiver", ModuleEvents.Receiver_RawData, "");
                 });
             }
             rfPulseTimer.Change(RfPulseDelay, Timeout.Infinite);
