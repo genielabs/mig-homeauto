@@ -129,19 +129,19 @@ namespace MIG.Interfaces.HomeAutomation
 
                 InterfaceModule module = new InterfaceModule();
 
-                if (portName == Cm15LibDriverPort)
+                if (portName == Cm15LibDriverPort || portName == Cm19LibDriverPort)
                 {
-                    // CM-15 RF receiver
+                    // CM15 / CM19 RF transceiver
                     module.Domain = this.GetDomain();
                     module.Address = "RF";
-                    module.ModuleType = ModuleTypes.Sensor;
-                    modules.Add(module);
-                }
-                else if (portName == Cm19LibDriverPort)
-                {
-                    // CM-19 RF receiver
-                    module.Domain = this.GetDomain();
-                    module.Address = "CM19";
+                    if (portName == Cm15LibDriverPort)
+                    {
+                        module.Description = "CM15 RF Transceiver";
+                    }
+                    else
+                    {
+                        module.Description = "CM19 RF Transceiver";
+                    }
                     module.ModuleType = ModuleTypes.Sensor;
                     modules.Add(module);
                 }
@@ -200,7 +200,7 @@ namespace MIG.Interfaces.HomeAutomation
 
         public bool IsDevicePresent()
         {
-            // AUTO-Detect CM15 / CM19 devices
+            // AUTO-Detect CM15 / CM19 / CM21 devices
             //bool present = false;
             ////
             ////TODO: implement serial port scanning for CM11 as well
@@ -209,14 +209,20 @@ namespace MIG.Interfaces.HomeAutomation
             //    //Console.WriteLine(o.Vid + " " + o.SymbolicName + " " + o.Pid + " " + o.Rev + " " + o.FullName + " " + o.Name + " ");
             //    if ((usbdev.Vid == 0x0BC7 && usbdev.Pid == 0x0001) || usbdev.FullName.ToUpper().Contains("X10"))
             //    {
-            //        // CM15
+            //        // CM15 - ActiveHome PLC interface
             //        cm15Found = true;
             //        break;
             //    }
-            //    else if ((usbdev.Vid == 0x0BC7 && usbdev.Pid == 0x0001) || usbdev.FullName.ToUpper().Contains("X10"))
+            //    else if ((usbdev.Vid == 0x0BC7 && usbdev.Pid == 0x0002) || usbdev.FullName.ToUpper().Contains("X10"))
             //    {
-            //        // CM19
+            //        // CM19 - FireCracker Transceiver
             //        cm19Found = true;
+            //        break;
+            //    }
+            //    else if ((usbdev.Vid == 0x0BC7 && usbdev.Pid == 0x0005) || usbdev.FullName.ToUpper().Contains("X10"))
+            //    {
+            //        // CM21 - NVidia ATI Remote Receiver
+            //        cm21Found = true;
             //        break;
             //    }
             //}
@@ -307,8 +313,8 @@ namespace MIG.Interfaces.HomeAutomation
                     // TODO: update modules status
                     break;
                 case Commands.Control_RfSend:
-                    byte[] data = StringToByteArray(option.Replace("-", ""));
-                    x10Lib.SendMessage(data);
+                    byte[] data = CM19Lib.Utility.StringToByteArray(option.Replace(" ", ""));
+                    cm19Lib.SendMessage(data);
                     break;
                 }
             }
@@ -369,7 +375,7 @@ namespace MIG.Interfaces.HomeAutomation
                     x10Lib.AllUnitsOff(houseCode);
                     break;
                 case Commands.Control_RfSend:
-                    byte[] data = StringToByteArray("EB"+option.Replace("-", ""));
+                    byte[] data = CM19Lib.Utility.StringToByteArray("EB"+option.Replace(" ", ""));
                     x10Lib.SendMessage(data);
                     break;
                 }
@@ -471,17 +477,6 @@ namespace MIG.Interfaces.HomeAutomation
                 address = "S-REMOTE";
                 moduleType = ModuleTypes.Sensor;
             }
-        }
-        
-        private byte[] StringToByteArray(String hexString)
-        {
-            int size = hexString.Length;
-            byte[] bytes = new byte[size / 2];
-            for (int i = 0; i < size; i += 2)
-            {
-                bytes[i / 2] = Convert.ToByte(hexString.Substring(i, 2), 16);
-            }
-            return bytes;
         }
 
         private InterfaceModule GetModuleByAddress(string address, ModuleTypes? defaultType = null)
