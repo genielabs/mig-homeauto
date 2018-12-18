@@ -56,9 +56,10 @@ namespace Test.WebService
 
             /*
             var x10 = migService.AddInterface("HomeAutomation.X10", "MIG.HomeAutomation.dll");
+            zwave.SetOption("Port", "CM19"); // "USB" for CM15 or the serial port path for CM11
             migService.EnableInterface("HomeAutomation.X10");
             */
-
+            
             while (true)
             {
                 Thread.Sleep(10000);

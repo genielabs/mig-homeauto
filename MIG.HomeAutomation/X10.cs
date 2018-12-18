@@ -57,7 +57,8 @@ namespace MIG.Interfaces.HomeAutomation
             Control_Level_Adjust,
             Control_Toggle,
             Control_AllLightsOn,
-            Control_AllUnitsOff
+            Control_AllUnitsOff,
+            Control_RfSend
         }
 
         #endregion
@@ -305,6 +306,10 @@ namespace MIG.Interfaces.HomeAutomation
                     cm19Lib.AllUnitsOff(houseCode);
                     // TODO: update modules status
                     break;
+                case Commands.Control_RfSend:
+                    byte[] data = StringToByteArray(option.Replace("-", ""));
+                    x10Lib.SendMessage(data);
+                    break;
                 }
             }
             else
@@ -330,7 +335,7 @@ namespace MIG.Interfaces.HomeAutomation
                     x10Lib.Dim(houseCode, unitCode, int.Parse(option));
                     break;
                 case Commands.Control_Level_Adjust:
-                    int adjvalue = int.Parse(option);
+                    //int adjvalue = int.Parse(option);
                     //x10Lib.Modules[nodeId].Level = ((double)adjvalue/100D);
                     OnInterfacePropertyChanged(this.GetDomain(), nodeId, "X10 Module", ModuleEvents.Status_Level, x10Lib.Modules[nodeId].Level);
                     throw(new NotImplementedException("X10 CONTROL_LEVEL_ADJUST Not Implemented"));
@@ -362,6 +367,10 @@ namespace MIG.Interfaces.HomeAutomation
                     break;
                 case Commands.Control_AllUnitsOff:
                     x10Lib.AllUnitsOff(houseCode);
+                    break;
+                case Commands.Control_RfSend:
+                    byte[] data = StringToByteArray("EB"+option.Replace("-", ""));
+                    x10Lib.SendMessage(data);
                     break;
                 }
             }
@@ -463,6 +472,17 @@ namespace MIG.Interfaces.HomeAutomation
                 moduleType = ModuleTypes.Sensor;
             }
         }
+        
+        private byte[] StringToByteArray(String hexString)
+        {
+            int size = hexString.Length;
+            byte[] bytes = new byte[size / 2];
+            for (int i = 0; i < size; i += 2)
+            {
+                bytes[i / 2] = Convert.ToByte(hexString.Substring(i, 2), 16);
+            }
+            return bytes;
+        }
 
         private InterfaceModule GetModuleByAddress(string address, ModuleTypes? defaultType = null)
         {
@@ -557,6 +577,7 @@ namespace MIG.Interfaces.HomeAutomation
         // TODO: Cm19LibOnRfCameraReceived not implemented (perhaps not needed)
         private void Cm19LibOnRfCameraReceived(object sender, RfCommandReceivedEventArgs args)
         {
+            /*
             var address = lastAddressedModule = "CAMERA-" + args.HouseCode;
             switch (args.Command)
             {
@@ -569,6 +590,7 @@ namespace MIG.Interfaces.HomeAutomation
                     case RfFunction.CameraDown:
                         break;
             }
+            */
             // TODO: not implemented (perhaps not needed)
         }
 
