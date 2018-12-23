@@ -591,28 +591,28 @@ namespace MIG.Interfaces.HomeAutomation
             var module = GetModuleByAddress(address, ModuleTypes.Sensor);
             switch (args.Command)
             {
-                case RfFunction.On:
+                case Function.On:
                     module.CustomData = 1D;
                     UpdateModuleLevel(module);
                     break;
-                case RfFunction.Off:
+                case Function.Off:
                     module.CustomData = 0D;
                     UpdateModuleLevel(module);
                     break;
-                case RfFunction.Bright:
+                case Function.Bright:
                     module.CustomData = module.CustomData + 1D/22D;
                     if (module.CustomData > 1) module.CustomData = 1D;
                     UpdateModuleLevel(module);
                     break;
-                case RfFunction.Dim:
+                case Function.Dim:
                     module.CustomData = module.CustomData - 1D/22D;
                     if (module.CustomData < 0) module.CustomData = 0D;
                     UpdateModuleLevel(module);
                     break;
-                case RfFunction.AllLightsOn:
+                case Function.AllLightsOn:
                     // TODO: not implemented
                     break;
-                case RfFunction.AllUnitsOff:
+                case Function.AllUnitsOff:
                     // TODO: not implemented
                     break;
             }
