@@ -123,8 +123,8 @@ namespace MIG.Interfaces.HomeAutomation
 
         public List<InterfaceModule> GetModules()
         {
-            InterfaceModule module = new InterfaceModule();
-            List<InterfaceModule> modules = new List<InterfaceModule>();
+            var module = new InterfaceModule();
+            var modules = new List<InterfaceModule>();
             // CM15 / CM19 RF transceiver
             if (portName == Cm15LibDriverPort || portName == Cm19LibDriverPort)
             {
@@ -224,7 +224,7 @@ namespace MIG.Interfaces.HomeAutomation
 
         public object InterfaceControl(MigInterfaceCommand request)
         {
-            ResponseText response = new ResponseText("OK");
+            var response = new ResponseText("OK");
 
             string nodeId = lastAddressedModule = request.Address;
             string option = request.GetOption(0);
