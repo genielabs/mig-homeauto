@@ -267,18 +267,18 @@ namespace MIG.Interfaces.HomeAutomation
                     int dimValue = (int.Parse(option) - (int) (module.CustomData * 100.0)) / 5;
                     if (dimValue > 0)
                     {
-                        for (int i = 0; i < dimValue; i++)
+                        cm19Lib.Bright(houseCode);
+                        for (int i = 0; i < (dimValue / Cm19Manager.SendRepeatCount); i++)
                         {
                             cm19Lib.Bright(houseCode);
-                            Thread.Sleep(200);
                         }
                     }
                     else if (dimValue < 0)
                     {
-                        for (int i = 0; i < -dimValue; i++)
+                        cm19Lib.Dim(houseCode);
+                        for (int i = 0; i < -(dimValue / Cm19Manager.SendRepeatCount); i++)
                         {
                             cm19Lib.Dim(houseCode);
-                            Thread.Sleep(200);
                         }
                     }
                     module.CustomData = module.CustomData + (dimValue * 5 / 100D);
@@ -368,7 +368,12 @@ namespace MIG.Interfaces.HomeAutomation
                     break;
                 case Commands.Control_RfSend:
                     byte[] data = CM19Lib.Utility.StringToByteArray("EB"+option.Replace(" ", ""));
-                    x10Lib.SendMessage(data);
+                    // SendRepeatCount is not implemented in XTenLib, so a for loop in required here
+                    for (int i = 0; i < Cm19Manager.SendRepeatCount; i++)
+                    {
+                        x10Lib.SendMessage(data);
+                        Thread.Sleep(Cm19Manager.SendPauseMs);
+                    }
                     break;
                 }
             }
