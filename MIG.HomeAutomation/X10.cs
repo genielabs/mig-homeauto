@@ -21,17 +21,26 @@
  *     Project Homepage: https://github.com/genielabs/mig-service-dotnet
  */
 
+/*
+ *
+ * Unified driver interface for X10: CM11 (serial), CM15 (USB), CM19 (USB)
+ *
+ */
+
 using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
+using System.Xml.Serialization;
 
 using MIG.Interfaces.HomeAutomation.Commons;
 using MIG.Config;
 
 using CM19Lib;
 using CM19Lib.X10;
+
+using Newtonsoft.Json;
 
 using XTenLib;
 
@@ -67,11 +76,12 @@ namespace MIG.Interfaces.HomeAutomation
 
         private const string Cm19LibDriverPort = "CM19-USB";
         private const string Cm15LibDriverPort = "USB";
+        private const string SecurityModulesDb = "x10_security_modules.xml";
         private readonly Cm19Manager cm19Lib;
         private readonly XTenManager x10Lib;
-        private Timer rfPulseTimer;
-        private int RfPulseDelay = 300;
         private List<InterfaceModule> securityModules;
+        // the standardModules list is used by CM19Lib since it has not its own modules list  like XTenLib
+        List<InterfaceModule> standardModules;
         private List<Option> options;
         // this is used to set the interface port (CM11 Serial, CM15 USB or CM19 USB)
         private string portName;
@@ -95,16 +105,10 @@ namespace MIG.Interfaces.HomeAutomation
             set
             {
                 options = value;
-                if (this.GetOption("Port") != null && this.GetOption("Port").Value != null)
+                var portOption = this.GetOption("Port");
+                if (portOption != null && portOption.Value != null)
                 {
-                    portName = this.GetOption("Port").Value.Replace("|", "/");
-                }
-                if (portName != Cm19LibDriverPort)
-                {
-                    // set x10Lib options
-                    x10Lib.PortName = portName;
-                    if (this.GetOption("HouseCodes") != null)
-                        x10Lib.HouseCode = this.GetOption("HouseCodes").Value;
+                    OnSetOption(portOption);
                 }
             }
         }
@@ -114,11 +118,30 @@ namespace MIG.Interfaces.HomeAutomation
             // parse option
             if (option.Name == "Port" && option.Value != null)
             {
-                portName = this.GetOption("Port").Value.Replace("|", "/");
                 Disconnect();
+                portName = this.GetOption("Port").Value.Replace("|", "/");
             }
-            if (IsEnabled)
-                Connect();
+            else if (option.Name == "HouseCodes" && option.Value != null)
+            {
+                // this option ends up in XTenLib to build the modules list that is used by CM19Lib as well
+                var houseCodes = this.GetOption("HouseCodes");
+                x10Lib.HouseCode = houseCodes.Value; // this will rebuild XTenLib.Modules list
+                // Build CM19Lib module list to store modules Level value (uses XTenLib.Modules to enumerate standard modules)
+                standardModules.Clear();
+                foreach (var m in x10Lib.Modules)
+                {
+                    var module = new InterfaceModule();
+                    module.Domain = this.GetDomain();
+                    module.Address = m.Value.Code;
+                    module.Description = m.Value.Description;
+                    module.ModuleType = ModuleTypes.Switch;
+                    module.CustomData = m.Value.Level;
+                    standardModules.Add(module);
+                }
+                OnInterfaceModulesChanged(this.GetDomain());
+            }
+            // re-connect if an interface option is updated
+            if (IsEnabled) Connect();
         }
 
         public List<InterfaceModule> GetModules()
@@ -158,16 +181,13 @@ namespace MIG.Interfaces.HomeAutomation
 
         public bool Connect()
         {
-            x10Lib.HouseCode = this.GetOption("HouseCodes").Value;
             if (portName == Cm19LibDriverPort)
             {
                 // use CM19 driver
-                OnInterfaceModulesChanged(this.GetDomain());
                 return cm19Lib.Connect();
             }
-            // use default driver for CM11 / CM15
+            // else use default driver for CM11 / CM15
             x10Lib.PortName = portName;
-            OnInterfaceModulesChanged(this.GetDomain());
             return x10Lib.Connect();
         }
 
@@ -237,7 +257,7 @@ namespace MIG.Interfaces.HomeAutomation
                 // Parse house/unit
                 var houseCode = CM19Lib.Utility.HouseCodeFromString(nodeId);
                 var unitCode = CM19Lib.Utility.UnitCodeFromString(nodeId);
-                var module = GetModuleByAddress(nodeId, ModuleTypes.Switch);
+                var module = GetSecurityModuleByAddress(nodeId, ModuleTypes.Switch);
                 // module.CustomData is used to store the current level
                 switch (command)
                 {
@@ -429,6 +449,9 @@ namespace MIG.Interfaces.HomeAutomation
             x10Lib.RfSecurityReceived += X10lib_RfSecurityReceived;
 
             securityModules = new List<InterfaceModule>();
+            // try loading cached security modules list
+            DeserializeModules(SecurityModulesDb, securityModules);
+            standardModules = new List<InterfaceModule>();
         }
 
         #endregion
@@ -437,7 +460,45 @@ namespace MIG.Interfaces.HomeAutomation
 
         #region Utility methods
         
-        private InterfaceModule AddModule(ModuleTypes moduleType, string address)
+        private void SerializeModules(string fileName, List<InterfaceModule> list) {
+            try
+            {
+                var serializer = new XmlSerializer(typeof(List<InterfaceModule>));
+                using ( var stream = File.OpenWrite(GetDbFullPath(fileName)))
+                {
+                    serializer.Serialize(stream, list);
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+        }
+        private void DeserializeModules(string fileName, List<InterfaceModule> list) {
+            try
+            {
+                var serializer = new XmlSerializer(typeof(List<InterfaceModule>));
+                using ( var stream = File.OpenRead(GetDbFullPath(fileName)) )
+                {
+                    var other = (List<InterfaceModule>)(serializer.Deserialize(stream));
+                    list.Clear();
+                    list.AddRange(other);
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+        }
+
+        private static string GetDbFullPath(string file)
+        {
+            string assemblyFolder = Path.GetDirectoryName(typeof(X10).Assembly.Location);
+            string path = Path.Combine(assemblyFolder, file);
+            return path;
+        }
+        
+        private InterfaceModule AddSecurityModule(ModuleTypes moduleType, string address)
         {
             InterfaceModule module = new InterfaceModule();
             module.Domain = this.GetDomain();
@@ -446,12 +507,13 @@ namespace MIG.Interfaces.HomeAutomation
             module.ModuleType = moduleType;
             module.CustomData = 0D;
             securityModules.Add(module);
+            SerializeModules(SecurityModulesDb, securityModules);
             OnInterfacePropertyChanged(module.Domain, "RF", "X10 RF Receiver", ModuleEvents.Receiver_Status, "Added module " + address + " (" + moduleType + ")");
             OnInterfaceModulesChanged(module.Domain);
             return module;
         }
 
-        private void ParseModuleAddress(String eventAddress, String eventName, out ModuleTypes moduleType, out string address)
+        private void ParseSecurityModuleAddress(String eventAddress, String eventName, out ModuleTypes moduleType, out string address)
         {
             address = "S-" + eventAddress;
             moduleType = ModuleTypes.Sensor;
@@ -476,12 +538,13 @@ namespace MIG.Interfaces.HomeAutomation
             }
         }
 
-        private InterfaceModule GetModuleByAddress(string address, ModuleTypes? defaultType = null)
+        private InterfaceModule GetSecurityModuleByAddress(string address, ModuleTypes? defaultType = null)
         {
             var module = securityModules.Find(m => m.Address == address);
+
             if (module == null && defaultType != null)
             {
-                module = AddModule((ModuleTypes)defaultType, address);
+                module = AddSecurityModule((ModuleTypes)defaultType, address);
             }
             return module;
         }
@@ -498,8 +561,8 @@ namespace MIG.Interfaces.HomeAutomation
         private void Cm19LibOnRfSecurityReceived(object sender, CM19Lib.Events.RfSecurityReceivedEventArgs args)
         {
             ModuleTypes moduleType; string address;
-            ParseModuleAddress(args.Address.ToString("X6"), args.Event.ToString(), out moduleType, out address);
-            var module = GetModuleByAddress(address, moduleType);
+            ParseSecurityModuleAddress(args.Address.ToString("X6"), args.Event.ToString(), out moduleType, out address);
+            var module = GetSecurityModuleByAddress(address, moduleType);
             switch (args.Event)
             {
             case RfSecurityEvent.DoorSensor1_Alert:
@@ -556,14 +619,6 @@ namespace MIG.Interfaces.HomeAutomation
         {
             var code = BitConverter.ToString(args.Data).Replace("-", " ");
             OnInterfacePropertyChanged(this.GetDomain(), "RF", "X10 RF Receiver", ModuleEvents.Receiver_RawData, code);
-            if (rfPulseTimer == null)
-            {
-                rfPulseTimer = new Timer(delegate(object target)
-                {
-                    OnInterfacePropertyChanged(this.GetDomain(), "RF", "X10 RF Receiver", ModuleEvents.Receiver_RawData, "");
-                });
-            }
-            rfPulseTimer.Change(RfPulseDelay, Timeout.Infinite);
         }
 
         // TODO: Cm19LibOnRfCameraReceived not implemented (perhaps not needed)
@@ -593,7 +648,9 @@ namespace MIG.Interfaces.HomeAutomation
             {
                 address = lastAddressedModule = args.HouseCode + args.UnitCode.ToString().Replace("Unit_", "");
             }
-            var module = GetModuleByAddress(address, ModuleTypes.Sensor);
+            var module = standardModules.Find(m => m.Address == address);
+            // ignore module if not belonging to monitored house codes
+            if (module == null) return;;
             switch (args.Command)
             {
                 case Function.On:
@@ -630,8 +687,8 @@ namespace MIG.Interfaces.HomeAutomation
         private void X10lib_RfSecurityReceived(object sender, RfSecurityReceivedEventArgs args)
         {
             ModuleTypes moduleType; string address;
-            ParseModuleAddress(args.Address.ToString("X6"), args.Event.ToString(), out moduleType, out address);
-            var module = GetModuleByAddress(address, moduleType);
+            ParseSecurityModuleAddress(args.Address.ToString("X6"), args.Event.ToString(), out moduleType, out address);
+            var module = GetSecurityModuleByAddress(address, moduleType);
             switch (args.Event)
             {
             case X10RfSecurityEvent.DoorSensor1_Alert:
@@ -687,15 +744,9 @@ namespace MIG.Interfaces.HomeAutomation
         private void X10lib_RfDataReceived(object sender, RfDataReceivedEventArgs args)
         {
             var code = BitConverter.ToString(args.Data).Replace("-", " ");
+            // skip initial "5D-" (5D-29-BE-B1-26-D9-XX-XX)
+            if (code.StartsWith("5D ")) code = code.Substring(3);
             OnInterfacePropertyChanged(this.GetDomain(), "RF", "X10 RF Receiver", ModuleEvents.Receiver_RawData, code);
-            if (rfPulseTimer == null)
-            {
-                rfPulseTimer = new Timer(delegate(object target)
-                {
-                    OnInterfacePropertyChanged(this.GetDomain(), "RF", "X10 RF Receiver", ModuleEvents.Receiver_RawData, "");
-                });
-            }
-            rfPulseTimer.Change(RfPulseDelay, Timeout.Infinite);
         }
 
         private void X10lib_ModuleChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
