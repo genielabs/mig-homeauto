@@ -9,7 +9,7 @@
     <OutputType>Library</OutputType>
     <RootNamespace>MIG.HomeAutomation</RootNamespace>
     <AssemblyName>MIG.HomeAutomation</AssemblyName>
-    <TargetFrameworkVersion>v4.5.2</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <ReleaseVersion>1.0</ReleaseVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
@@ -48,7 +48,7 @@
       <Private>True</Private>
     </Reference>
     <Reference Include="MIG, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
-      <HintPath>..\packages\MIG.1.1.5\lib\MIG.dll</HintPath>
+      <HintPath>..\packages\MIG.1.1.6\lib\MIG.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Newtonsoft.Json, Version=11.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed">
