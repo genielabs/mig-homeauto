@@ -15,9 +15,10 @@
         <copyright>G-Labs</copyright>
         <tags>mig interface mig-service homeautomation x10 zwave</tags>
         <dependencies>
-            <dependency id="MIG" version="1.0.5" />
-            <dependency id="XTenLib" version="1.0.10" />
+            <dependency id="MIG" version="1.1.5" />
+            <dependency id="XTenLib" version="1.0.15" />
             <dependency id="ZWaveLib" version="1.0.18" />
+            <dependency id="CM19Lib" version="1.1.6" />
         </dependencies>
     </metadata>
     <files>
