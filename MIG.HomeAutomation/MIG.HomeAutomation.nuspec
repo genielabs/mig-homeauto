@@ -17,8 +17,8 @@
         <dependencies>
             <dependency id="MIG" version="1.1.7" />
             <dependency id="XTenLib" version="1.0.15" />
-            <dependency id="ZWaveLib" version="1.0.22" />
-            <dependency id="CM19Lib" version="1.1.7" />
+            <dependency id="ZWaveLib" version="1.0.23" />
+            <dependency id="CM19Lib" version="1.1.8" />
         </dependencies>
     </metadata>
     <files>
