@@ -15,14 +15,14 @@
         <copyright>G-Labs</copyright>
         <tags>mig interface mig-service homeautomation x10 zwave</tags>
         <dependencies>
-            <dependency id="MIG" version="1.1.6" />
+            <dependency id="MIG" version="1.1.7" />
             <dependency id="XTenLib" version="1.0.15" />
-            <dependency id="ZWaveLib" version="1.0.18" />
-            <dependency id="CM19Lib" version="1.1.6" />
+            <dependency id="ZWaveLib" version="1.0.22" />
+            <dependency id="CM19Lib" version="1.1.7" />
         </dependencies>
     </metadata>
     <files>
-        <file src="bin\Debug\MIG.HomeAutomation.dll" target="lib\MIG.HomeAutomation.dll" />
+	<file src="bin\Debug\**\MIG.HomeAutomation.*" target="lib\" />
     </files>
 </package>
 
