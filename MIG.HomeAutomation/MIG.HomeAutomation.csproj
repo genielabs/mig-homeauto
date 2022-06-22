@@ -25,7 +25,7 @@
     <PackageReference Include="SharpZipLib" Version="1.0.0" />
     <PackageReference Include="LibUsbDotNet" Version="2.2.8" />
     <PackageReference Include="MIG" Version="1.1.7" />
-    <PackageReference Include="Newtonsoft.Json" Version="11.0.2" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
     <PackageReference Include="NLog" Version="4.5.10" />
     <PackageReference Include="SerialPortLib" Version="1.0.21" />
     <PackageReference Include="UDE.CSharp" Version="1.1.0" />
