@@ -31,8 +31,6 @@ namespace MIG.Interfaces.HomeAutomation
 
         public bool Update(string pepper1Url = defaultPepper1Url)
         {
-            ZipConstants.DefaultCodePage = System.Text.Encoding.UTF8.CodePage;
-
             // request archive from P1 db
             using (var client = new WebClient())
             {
@@ -151,6 +149,7 @@ namespace MIG.Interfaces.HomeAutomation
             {
                 FileStream fs = File.OpenRead(archiveFilenameIn);
                 zf = new ZipFile(fs);
+                zf.StringCodec = StringCodec.FromCodePage(System.Text.Encoding.UTF8.CodePage);
                 if (!String.IsNullOrEmpty(password))
                 {
                     zf.Password = password;     // AES encrypted entries are handled automatically
