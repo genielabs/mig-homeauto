@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Text;
 using System.Xml.Linq;
 using System.Xml.XPath;
 using ICSharpCode.SharpZipLib.Core;
@@ -149,7 +150,11 @@ namespace MIG.Interfaces.HomeAutomation
             {
                 FileStream fs = File.OpenRead(archiveFilenameIn);
                 zf = new ZipFile(fs);
+#if !NETCOREAPP                
+                ZipStrings.CodePage = Encoding.UTF8.CodePage;
+#else
                 zf.StringCodec = StringCodec.FromCodePage(System.Text.Encoding.UTF8.CodePage);
+#endif
                 if (!String.IsNullOrEmpty(password))
                 {
                     zf.Password = password;     // AES encrypted entries are handled automatically
