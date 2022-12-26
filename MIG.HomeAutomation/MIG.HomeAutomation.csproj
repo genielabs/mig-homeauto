@@ -10,14 +10,14 @@
     <PackageTags>mig interface mig-service homeautomation x10 zwave</PackageTags>
     <RuntimeIdentifiers>win8-arm;linux-arm;win10-x64;osx.10.11-x64;linux-x64</RuntimeIdentifiers>
     <OutputType>Library</OutputType>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFrameworks>net472;net6.0</TargetFrameworks>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="CM19Lib" Version="1.2.0" />
+    <PackageReference Include="CM19Lib" Version="1.2.1" />
+    <PackageReference Include="MIG" Version="1.2.3" />
     <PackageReference Include="SharpZipLib" Version="1.4.1" />
-    <PackageReference Include="MIG" Version="1.2.0" />
-    <PackageReference Include="XTenLib" Version="1.1.0" />
-    <PackageReference Include="ZWaveLib" Version="1.1.0" />
+    <PackageReference Include="XTenLib" Version="1.1.1" />
+    <PackageReference Include="ZWaveLib" Version="1.1.1" />
   </ItemGroup>
 </Project>
