@@ -493,11 +493,11 @@ namespace MIG.Interfaces.HomeAutomation
 
         private static string GetDbFullPath(string file)
         {
-            string assemblyFolder = Path.GetDirectoryName(typeof(X10).Assembly.Location);
-            string path = Path.Combine(assemblyFolder, file);
-            return path;
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "mig", "x10");
+            Directory.CreateDirectory(path);
+            return Path.Combine(path, file);
         }
-        
+
         private InterfaceModule AddSecurityModule(ModuleTypes moduleType, string address)
         {
             InterfaceModule module = new InterfaceModule();

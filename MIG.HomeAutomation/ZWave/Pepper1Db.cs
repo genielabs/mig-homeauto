@@ -17,9 +17,9 @@ namespace MIG.Interfaces.HomeAutomation
     {
         private const string dbFilename = "p1db.xml";
         private const string additionalDbFilename = "p1db_custom.xml";
-        private const string archiveFilename = "archive.zip";
-        private const string tempFolder = "temp";
-        private const string defaultPepper1Url = "https://genielabs.github.io/HomeGenie/_hg_files/zwave/pepper1_device_archive.zip";
+        private const string archiveFilename = "zwave_db_archive.zip";
+        private const string tempFolder = "tmp";
+        private const string defaultPepper1Url = "https://genielabs.github.io/HomeGenie/data/zwave/pepper1_device_archive.zip";
 
         public bool DbExists
         {
@@ -138,9 +138,9 @@ namespace MIG.Interfaces.HomeAutomation
 
         private static string GetDbFullPath(string file)
         {
-            string assemblyFolder = Path.GetDirectoryName(typeof(Pepper1Db).Assembly.Location);
-            string path = Path.Combine(assemblyFolder, file);
-            return path;
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "mig", "zwave");
+            Directory.CreateDirectory(path);
+            return Path.Combine(path, file);
         }
 
         private static void ExtractZipFile(string archiveFilenameIn, string password, string outFolder)
