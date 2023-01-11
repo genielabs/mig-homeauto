@@ -21,8 +21,6 @@
  *     Project Homepage: https://github.com/genielabs/mig-service-dotnet
  */
 
-using System;
-
 namespace MIG.Interfaces.HomeAutomation.Commons
 {
     /// <summary>
@@ -35,6 +33,8 @@ namespace MIG.Interfaces.HomeAutomation.Commons
             "VirtualMeter.Watts";
         public static string Status_Level =
             "Status.Level";
+        public static string Status_ColorHsb =
+            "Status.ColorHsb";
         public static string Status_DoorLock =
             "Status.DoorLock";
         public static string Status_Battery =

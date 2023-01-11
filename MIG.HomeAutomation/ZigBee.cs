@@ -16,8 +16,10 @@ using ZigbeeNet.Hardware.ConBee;
 using ZigBeeNet.Security;
 using ZigBeeNet.Tranport.SerialPort;
 using ZigBeeNet.Transaction;
+using ZigBeeNet.Util;
 using ZigBeeNet.ZCL;
 using ZigBeeNet.ZCL.Clusters;
+using ZigBeeNet.ZCL.Clusters.ColorControl;
 using ZigBeeNet.ZCL.Clusters.LevelControl;
 using ZigBeeNet.ZCL.Clusters.OnOff;
 using ZigBeeNet.ZDO.Command;
@@ -46,8 +48,9 @@ namespace MIG.Interfaces.HomeAutomation
 
             Control_On,
             Control_Off,
-            Control_Level,
             Control_Toggle,
+            Control_Level,
+            Control_ColorHsb,
 
             Thermostat_ModeGet,
             Thermostat_ModeSet,
@@ -129,16 +132,25 @@ namespace MIG.Interfaces.HomeAutomation
             string eventParameter = ModuleEvents.Status_Level;
             string eventValue = "";
 
+            Commands command;
+            Enum.TryParse(request.Command.Replace(".", "_"), out command);
+
             ushort nodeId = ushort.Parse(request.Address);
 
+            // Check if controller is ready
+            if (!IsConnected)
+            {
+                return new ResponseStatus(Status.Error, "Controller not connected.");
+            }
+            
             // controller commands
 
             if (nodeId == 0) 
             {
 
-                switch (request.Command)
+                switch (command)
                 {
-                    case "Controller.NodeAdd":
+                    case Commands.Controller_NodeAdd:
                         lastAddedNode = 0;
                         // Enable node pairing
                         ZigBeeNode coord = networkManager.GetNode(0);
@@ -183,48 +195,73 @@ namespace MIG.Interfaces.HomeAutomation
             }
             ZigBeeEndpointAddress endpointAddress = endpoint.GetEndpointAddress();
 
-            switch (request.Command)
+            switch (command)
             {
-                case "Control.On":
+                case Commands.Control_On:
                     networkManager
-                        .Send(endpointAddress, new OnCommand())
-                        .Wait();
-                    nodeData.Level = 1;
+                        .Send(endpointAddress, new OnCommand());
+                    nodeData.Level = nodeData.LastLevel > 0 ? nodeData.LastLevel : 1;
                     eventValue = nodeData.Level.ToString(CultureInfo.InvariantCulture);
                     raiseEvent = true;
                     break;
-                case "Control.Off":
+
+                case Commands.Control_Off:
                     networkManager
-                        .Send(endpointAddress, new OffCommand())
-                        .Wait();
+                        .Send(endpointAddress, new OffCommand());
                     nodeData.Level = 0;
                     eventValue = nodeData.Level.ToString(CultureInfo.InvariantCulture);
                     raiseEvent = true;
                     break;
-                case "Control.Level":
-                    var level = int.Parse(request.GetOption(0));
-                    var command = new MoveToLevelWithOnOffCommand()
-                    {
-                        Level = (byte)(level*2.55D),
-                        TransitionTime = 10
-                    };
+
+                case Commands.Control_Toggle:
                     networkManager
-                        .Send(endpointAddress, command)
-                        .Wait();
-                    nodeData.Level = (level / 100D);
-                    eventValue = nodeData.Level.ToString(CultureInfo.InvariantCulture);
-                    raiseEvent = true;
-                    break;
-                case "Control.Toggle":
-                    networkManager
-                        .Send(endpointAddress, new ToggleCommand())
-                        .Wait();
+                        .Send(endpointAddress, new ToggleCommand());
                     nodeData.Level = nodeData.Level > 0 ? 0 : nodeData.LastLevel;
                     eventValue = nodeData.Level.ToString(CultureInfo.InvariantCulture);
                     raiseEvent = true;
                     break;
-                case "Debug.Test":
-                    TestNode(nodeId, endpointAddress, endpoint);
+
+                case Commands.Control_Level:
+                    var level = int.Parse(request.GetOption(0));
+                    nodeData.Level = (level / 100D);
+                    SetLevel(endpointAddress, level, nodeData.Transition);
+                    eventValue = nodeData.Level.ToString(CultureInfo.InvariantCulture);
+                    raiseEvent = true;
+                    break;
+
+                case Commands.Control_ColorHsb:
+                    string color = request.GetOption(0);
+                    string[] values = color.Split(',');
+                    ushort transition = 4; // 400ms default transition
+                    if (values.Length > 3)
+                    {
+                        transition = (ushort)(double.Parse(values[3], CultureInfo.InvariantCulture) * 10);
+                    }
+                    nodeData.Transition = transition;
+                    double brightness = double.Parse(values[2], CultureInfo.InvariantCulture);
+                    if (nodeData.Level != brightness)
+                    {
+                        nodeData.Level = brightness;
+                        SetLevel(endpointAddress, (int)(brightness * 100), transition);
+                    }
+                    SetColorHsb
+                    (
+                        endpointAddress,
+                        double.Parse(values[0], CultureInfo.InvariantCulture) * 360,
+                        double.Parse(values[1], CultureInfo.InvariantCulture),
+                        brightness, // status.level
+                        transition
+                    );
+                    OnInterfacePropertyChanged(
+                        this.GetDomain(),
+                        nodeId.ToString(CultureInfo.InvariantCulture),
+                        "ZigBee Node",
+                        eventParameter, // Status.Level
+                        brightness.ToString(CultureInfo.InvariantCulture)
+                    );
+                    eventParameter = ModuleEvents.Status_ColorHsb;
+                    eventValue = color;
+                    raiseEvent = true;
                     break;
             }
 
@@ -273,17 +310,15 @@ namespace MIG.Interfaces.HomeAutomation
             // Start network manager
             ZigBeeStatus startupSucceded = networkManager.Startup(false);
             
-
-            // get stored node list
-            for (int i = 0; i < networkManager.Nodes.Count; i++)
-            {
-                var node = networkManager.Nodes[i];
-                AddNode(node);
-                Console.WriteLine($"{i}. {node.LogicalType}: {node.NetworkAddress}");
-            }
-
             if (startupSucceded == ZigBeeStatus.SUCCESS)
             {
+                // get stored node list
+                for (int i = 0; i < networkManager.Nodes.Count; i++)
+                {
+                    var node = networkManager.Nodes[i];
+                    AddNode(node);
+                    Console.WriteLine($"{i}. {node.LogicalType}: {node.NetworkAddress}");
+                }
                 return true;
             }
 
@@ -301,6 +336,7 @@ namespace MIG.Interfaces.HomeAutomation
                 zigbeeDongle = null;
                 networkManager = null;
             }
+            modules.Clear();
         }
 
         public bool IsDevicePresent()
@@ -334,16 +370,18 @@ namespace MIG.Interfaces.HomeAutomation
         {
             if (node.IsFullFunctionDevice && node.LogicalType == NodeDescriptor.LogicalType.ROUTER)
             {
+                string address = node.NetworkAddress.ToString(CultureInfo.InvariantCulture);
+                modules.RemoveAll((m) => m.Address == address);
                 modules.Add(new InterfaceModule()
                 {
                     Domain = "HomeAutomation.ZigBee",
-                    Address = node.NetworkAddress.ToString(CultureInfo.InvariantCulture),
+                    Address = address,
                     // TODO: get device type 
                     ModuleType = ModuleTypes.Dimmer,
                     CustomData = new ZigBeeNodeData()
                 });
                 lastAddedNode = node.NetworkAddress;
-                OnInterfacePropertyChanged(this.GetDomain(), "1", "ZigBee Controller", "Controller.Status", "Added node " + node.NetworkAddress);
+                OnInterfacePropertyChanged(this.GetDomain(), "0", "ZigBee Controller", "Controller.Status", "Added node " + node.NetworkAddress);
                 OnInterfaceModulesChanged(this.GetDomain());
             }
         }
@@ -354,7 +392,7 @@ namespace MIG.Interfaces.HomeAutomation
             if (removed > 0)
             {
                 lastRemovedNode = node.NetworkAddress;
-                OnInterfacePropertyChanged(this.GetDomain(), "1", "ZigBee Controller", "Controller.Status", "Removed node " + node.NetworkAddress);
+                OnInterfacePropertyChanged(this.GetDomain(), "0", "ZigBee Controller", "Controller.Status", "Removed node " + node.NetworkAddress);
                 OnInterfaceModulesChanged(this.GetDomain());
             }
         }
@@ -387,6 +425,28 @@ namespace MIG.Interfaces.HomeAutomation
             return networkManager.Startup(resetNetwork) == ZigBeeStatus.SUCCESS;
         }
 
+        private async Task SetLevel(ZigBeeEndpointAddress endpointAddress, int level, ushort transition)
+        {
+            var cmd = new MoveToLevelWithOnOffCommand()
+            {
+                Level = (byte)(level*2.55D),
+                TransitionTime = transition
+            };
+            await networkManager.Send(endpointAddress, cmd);
+        }
+        private async Task SetColorHsb(ZigBeeEndpointAddress endpointAddress, double h, double s, double v, ushort transition)
+        {
+            var rgb = ColorHelper.HSVToRGB(new ColorHelper.HSV(h, s, v));
+            CieColor xyY = ColorConverter.RgbToCie(rgb.R, rgb.G, rgb.B);
+            MoveToColorCommand cmd = new MoveToColorCommand()
+            {
+                ColorX = xyY.X,
+                ColorY = xyY.Y,
+                TransitionTime = transition
+            };
+            await networkManager.Send(endpointAddress, cmd);
+        }
+
         private void TestNode(ushort nodeId, ZigBeeEndpointAddress endpointAddress, ZigBeeEndpoint endpoint)
         {
             var watch = System.Diagnostics.Stopwatch.StartNew();
@@ -417,7 +477,7 @@ namespace MIG.Interfaces.HomeAutomation
             foreach (int clusterId in endpoint.GetInputClusterIds())
             {
                 ZclCluster cluster = endpoint.GetInputCluster(clusterId);
-                cluster.DiscoverAttributes(true).Wait();
+                //cluster.DiscoverAttributes(true).Wait();
                 if (!await cluster.DiscoverAttributes(true))
                     Console.WriteLine("Error while discovering attributes for cluster {0}", cluster.GetClusterName());
             }
@@ -472,7 +532,8 @@ namespace MIG.Interfaces.HomeAutomation
                 }
             }
         }
-        public double LastLevel = 0;
+        public double LastLevel;
+        public ushort Transition = 4; // 400ms
     }
     
     public class ConsoleCommandListener : IZigBeeCommandListener
@@ -482,20 +543,20 @@ namespace MIG.Interfaces.HomeAutomation
 
             // TODO: parse / handle received commands
             
-            Console.WriteLine($"\n\n{command}\n");
+            //Console.WriteLine($"\n\n{command}\n");
         }
     }
 
     public class ConsoleNetworkNodeListener : IZigBeeNetworkNodeListener
     {
-        private ZigBee zigBee;
+        private readonly ZigBee zigBee;
         public ConsoleNetworkNodeListener(ZigBee zigBeeInterface)
         {
             zigBee = zigBeeInterface;
         }
         public void NodeAdded(ZigBeeNode node)
         {
-            Console.WriteLine("Node " + node.IeeeAddress + " added " + node);
+//            Console.WriteLine("Node " + node.IeeeAddress + " added " + node);
             if (node.NetworkAddress != 0)
             {
                 zigBee.AddNode(node);
@@ -504,7 +565,7 @@ namespace MIG.Interfaces.HomeAutomation
 
         public void NodeRemoved(ZigBeeNode node)
         {
-            Console.WriteLine("Node removed " + node);
+//            Console.WriteLine("Node removed " + node);
             zigBee.RemoveNode(node);
         }
 
