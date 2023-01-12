@@ -376,9 +376,11 @@ namespace MIG.Interfaces.HomeAutomation
                 {
                     Domain = "HomeAutomation.ZigBee",
                     Address = address,
-                    // TODO: get device type 
-                    ModuleType = ModuleTypes.Dimmer,
                     CustomData = new ZigBeeNodeData()
+                    {
+                        // TODO: get type from device node
+                        Type = ModuleTypes.Dimmer
+                    }
                 });
                 lastAddedNode = node.NetworkAddress;
                 OnInterfacePropertyChanged(this.GetDomain(), "0", "ZigBee Controller", "Controller.Status", "Added node " + node.NetworkAddress);
@@ -517,7 +519,6 @@ namespace MIG.Interfaces.HomeAutomation
 
     }
 
-
     public class ZigBeeNodeData
     {
         private double level = 0;
@@ -534,6 +535,7 @@ namespace MIG.Interfaces.HomeAutomation
         }
         public double LastLevel;
         public ushort Transition = 4; // 400ms
+        public ModuleTypes Type = ModuleTypes.Generic;
     }
     
     public class ConsoleCommandListener : IZigBeeCommandListener

@@ -34,13 +34,11 @@ using System.Globalization;
 using System.Threading;
 using System.Xml.Serialization;
 
-using MIG.Interfaces.HomeAutomation.Commons;
 using MIG.Config;
+using MIG.Interfaces.HomeAutomation.Commons;
 
 using CM19Lib;
 using CM19Lib.X10;
-
-using Newtonsoft.Json;
 
 using XTenLib;
 
@@ -134,8 +132,11 @@ namespace MIG.Interfaces.HomeAutomation
                     module.Domain = this.GetDomain();
                     module.Address = m.Value.Code;
                     module.Description = m.Value.Description;
-                    module.ModuleType = ModuleTypes.Switch;
-                    module.CustomData = m.Value.Level;
+                    module.CustomData = new X10ModuleData()
+                    {
+                        Level = m.Value.Level,
+                        Type = ModuleTypes.Switch
+                    };
                     standardModules.Add(module);
                 }
                 OnInterfaceModulesChanged(this.GetDomain());
@@ -161,7 +162,10 @@ namespace MIG.Interfaces.HomeAutomation
                 {
                     module.Description = "CM19 Transceiver";
                 }
-                module.ModuleType = ModuleTypes.Sensor;
+                module.CustomData = new X10ModuleData()
+                {
+                    Type = ModuleTypes.Sensor            
+                };
                 modules.Add(module);
             }
             // Standard X10 modules
@@ -170,7 +174,10 @@ namespace MIG.Interfaces.HomeAutomation
                 module = new InterfaceModule();
                 module.Domain = this.GetDomain();
                 module.Address = kv.Value.Code;
-                module.ModuleType = ModuleTypes.Switch;
+                module.CustomData = new X10ModuleData()
+                {
+                    Type = ModuleTypes.Switch            
+                };
                 module.Description = "X10 Module";
                 modules.Add(module);
             }
@@ -263,28 +270,28 @@ namespace MIG.Interfaces.HomeAutomation
                 {
                 case Commands.Control_On:
                     cm19Lib.UnitOn(houseCode, unitCode);
-                    module.CustomData = 1D;
+                    module.CustomData.Level = 1D;
                     UpdateModuleLevel(module);
                     break;
                 case Commands.Control_Off:
                     cm19Lib.UnitOff(houseCode, unitCode);
-                    module.CustomData = 0D;
+                    module.CustomData.Level = 0D;
                     UpdateModuleLevel(module);
                     break;
                 case Commands.Control_Bright:
                     cm19Lib.Bright(houseCode);
-                    module.CustomData = module.CustomData + (5 / 100D);
-                    if (module.CustomData > 1) module.CustomData = 1D;
+                    module.CustomData.Level += (5 / 100D);
+                    if (module.CustomData.Level > 1) module.CustomData.Level = 1D;
                     UpdateModuleLevel(module);
                     break;
                 case Commands.Control_Dim:
                     cm19Lib.Dim(houseCode);
-                    module.CustomData = module.CustomData - (5 / 100D);
-                    if (module.CustomData < 0) module.CustomData = 0D;
+                    module.CustomData.Level -= (5 / 100D);
+                    if (module.CustomData.Level < 0) module.CustomData.Level = 0D;
                     UpdateModuleLevel(module);
                     break;
                 case Commands.Control_Level:
-                    int dimValue = (int.Parse(option) - (int) (module.CustomData * 100.0)) / 5;
+                    int dimValue = (int.Parse(option) - (int) (module.CustomData.Level * 100.0)) / 5;
                     if (dimValue > 0)
                     {
                         cm19Lib.Bright(houseCode);
@@ -301,11 +308,11 @@ namespace MIG.Interfaces.HomeAutomation
                             cm19Lib.Dim(houseCode);
                         }
                     }
-                    module.CustomData = module.CustomData + (dimValue * 5 / 100D);
+                    module.CustomData.Level += (dimValue * 5 / 100D);
                     UpdateModuleLevel(module);
                     break;
                 case Commands.Control_Toggle:
-                    if (module.CustomData == 0D)
+                    if (module.CustomData.Level == 0D)
                     {
                         cm19Lib.UnitOn(houseCode, unitCode);
                         UpdateModuleLevel(module);
@@ -504,8 +511,11 @@ namespace MIG.Interfaces.HomeAutomation
             module.Domain = this.GetDomain();
             module.Address = address;
             module.Description = "X10 Security";
-            module.ModuleType = moduleType;
-            module.CustomData = 0D;
+            module.CustomData = new X10ModuleData()
+            {
+                Level = 0D,
+                Type = moduleType            
+            };
             securityModules.Add(module);
             SerializeModules(SecurityModulesDb, securityModules);
             OnInterfacePropertyChanged(module.Domain, "RF", "X10 RF Receiver", ModuleEvents.Receiver_Status, "Added module " + address + " (" + moduleType + ")");
@@ -654,21 +664,21 @@ namespace MIG.Interfaces.HomeAutomation
             switch (args.Command)
             {
                 case Function.On:
-                    module.CustomData = 1D;
+                    module.CustomData.Level = 1D;
                     UpdateModuleLevel(module);
                     break;
                 case Function.Off:
-                    module.CustomData = 0D;
+                    module.CustomData.Level = 0D;
                     UpdateModuleLevel(module);
                     break;
                 case Function.Bright:
-                    module.CustomData = module.CustomData + 1D/22D;
-                    if (module.CustomData > 1) module.CustomData = 1D;
+                    module.CustomData.Level += 1D/22D;
+                    if (module.CustomData.Level > 1) module.CustomData.Level = 1D;
                     UpdateModuleLevel(module);
                     break;
                 case Function.Dim:
-                    module.CustomData = module.CustomData - 1D/22D;
-                    if (module.CustomData < 0) module.CustomData = 0D;
+                    module.CustomData.Level -= 1D/22D;
+                    if (module.CustomData.Level < 0) module.CustomData.Level = 0D;
                     UpdateModuleLevel(module);
                     break;
                 case Function.AllLightsOn:
@@ -782,4 +792,23 @@ namespace MIG.Interfaces.HomeAutomation
         #endregion
 
     }
+
+    public class X10ModuleData
+    {
+        private double level = 0;
+        public double Level {
+            get => level;
+            set
+            {
+                level = value;
+                if (level != 0)
+                {
+                    LastLevel = level;
+                }
+            }
+        }
+        public double LastLevel;
+        public ModuleTypes Type = ModuleTypes.Generic;
+    }
+
 }

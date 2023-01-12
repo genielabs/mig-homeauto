@@ -1,6 +1,6 @@
 namespace MIG.Interfaces.HomeAutomation.Commons
 {
-    public enum ModuleTypes_To_Refactor
+    public enum ModuleTypes
     {
         Generic = -1,
         Program,

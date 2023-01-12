@@ -191,54 +191,57 @@ namespace MIG.Interfaces.HomeAutomation
                     module.Domain = this.GetDomain();
                     module.Address = node.Id.ToString();
                     //module.Description = "ZWave Node";
-                    module.ModuleType = ModuleTypes.Generic;
+                    module.CustomData = new ZWaveNodeData()
+                    {
+                        Type = ModuleTypes.Generic
+                    };
                     if (node.ProtocolInfo.GenericType != (byte)GenericType.None)
                     {
                         switch (node.ProtocolInfo.GenericType)
                         {
                         case (byte)GenericType.StaticController:
                             module.Description = "Static Controller";
-                            module.ModuleType = ModuleTypes.Generic;
+                            module.CustomData.Type = ModuleTypes.Generic;
                             break;
 
                         case (byte)GenericType.SwitchBinary:
                             module.Description = "Binary Switch";
-                            module.ModuleType = ModuleTypes.Switch;
+                            module.CustomData.Type = ModuleTypes.Switch;
                             break;
 
                         case (byte)GenericType.SwitchMultilevel:
                             module.Description = "Multilevel Switch";
-                            module.ModuleType = ModuleTypes.Dimmer;
+                            module.CustomData.Type = ModuleTypes.Dimmer;
                             break;
 
                         case (byte)GenericType.Thermostat:
                             module.Description = "Thermostat";
-                            module.ModuleType = ModuleTypes.Thermostat;
+                            module.CustomData.Type = ModuleTypes.Thermostat;
                             break;
                             
                         case (byte)GenericType.SensorAlarm:
                             module.Description = "Alarm Sensor";
-                            module.ModuleType = ModuleTypes.Sensor;
+                            module.CustomData.Type = ModuleTypes.Sensor;
                             break;
 
                         case (byte)GenericType.SensorBinary:
                             module.Description = "Binary Sensor";
-                            module.ModuleType = ModuleTypes.Sensor;
+                            module.CustomData.Type = ModuleTypes.Sensor;
                             break;
 
                         case (byte)GenericType.SensorMultilevel:
                             module.Description = "Multilevel Sensor";
-                            module.ModuleType = ModuleTypes.Sensor;
+                            module.CustomData.Type = ModuleTypes.Sensor;
                             break;
 
                         case (byte)GenericType.Meter:
                             module.Description = "ZWave Meter";
-                            module.ModuleType = ModuleTypes.Sensor;
+                            module.CustomData.Type = ModuleTypes.Sensor;
                             break;
 
                         case (byte)GenericType.EntryControl:
                             module.Description = "ZWave Door Lock";
-                            module.ModuleType = ModuleTypes.DoorLock;
+                            module.CustomData.Type = ModuleTypes.DoorLock;
                             break;
 
                         }
@@ -1240,5 +1243,23 @@ namespace MIG.Interfaces.HomeAutomation
 
         #endregion
 
+    }
+
+    public class ZWaveNodeData
+    {
+        private double level = 0;
+        public double Level {
+            get => level;
+            set
+            {
+                level = value;
+                if (level != 0)
+                {
+                    LastLevel = level;
+                }
+            }
+        }
+        public double LastLevel;
+        public ModuleTypes Type = ModuleTypes.Generic;
     }
 }
