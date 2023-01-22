@@ -470,7 +470,12 @@ namespace MIG.Interfaces.HomeAutomation
         private void SerializeModules(string fileName, List<InterfaceModule> list) {
             try
             {
-                var serializer = new XmlSerializer(typeof(List<InterfaceModule>));
+                XmlAttributeOverrides overrides = new XmlAttributeOverrides();
+                XmlAttributes attribs = new XmlAttributes();
+                attribs.XmlIgnore = true;
+                attribs.XmlElements.Add(new XmlElementAttribute("CustomData"));
+                overrides.Add(typeof(InterfaceModule), "CustomData", attribs);
+                var serializer = new XmlSerializer(typeof(List<InterfaceModule>), overrides);
                 using ( var stream = File.OpenWrite(GetDbFullPath(fileName)))
                 {
                     serializer.Serialize(stream, list);

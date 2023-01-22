@@ -19,7 +19,7 @@
 
   <ItemGroup>
     <PackageReference Include="CM19Lib" Version="1.2.1" />
-    <PackageReference Include="MIG" Version="1.2.8" />
+    <PackageReference Include="MIG" Version="1.2.9" />
     <PackageReference Include="SharpZipLib" Version="1.4.1" />
     <PackageReference Include="XTenLib" Version="1.1.1" />
     <PackageReference Include="ZigBeeNet" Version="1.5.0" />
