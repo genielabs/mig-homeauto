@@ -45,6 +45,13 @@ namespace MIG.Interfaces.HomeAutomation
             Controller_HealNetwork,
             Controller_NodeNeighborUpdate,
             Controller_NodeRoutingInfo,
+            
+            ManufacturerName_Get,
+            ModelIdentifier_Get,
+            NodeInfo_Get,
+
+            Basic_Get,
+            Basic_Set,
 
             Control_On,
             Control_Off,
@@ -74,8 +81,10 @@ namespace MIG.Interfaces.HomeAutomation
             = "ZigBeeNode.NodeInfo";
         const string EventPath_RoutingInfo
             = "ZigBeeNode.RoutingInfo";
-        const string EventPath_ManufacturerSpecific
-            = "ZigBeeNode.ManufacturerSpecific";
+        const string EventPath_ManufacturerName
+            = "ZigBeeNode.ManufacturerName";
+        const string EventPath_ModelIdentifier
+            = "ZigBeeNode.ModelIdentifier";
         const string EventPath_VersionReport
             = "ZigBeeNode.VersionReport";
 
@@ -168,6 +177,22 @@ namespace MIG.Interfaces.HomeAutomation
                         coord.PermitJoin(false);
                         returnValue = new ResponseStatus(Status.Ok, lastAddedNode.ToString());
                         break;
+                    case Commands.Controller_NodeRemove:
+                        ushort.TryParse(request.GetOption(0), out nodeId);
+                        var nodeToRemove = networkManager.GetNode(nodeId);
+                        if (nodeToRemove != null)
+                        {
+                            networkManager.RemoveNode(nodeToRemove);
+                            returnValue = new ResponseStatus(Status.Ok, $"Removed node {nodeId}.");
+                        }
+                        else
+                        {
+                            returnValue = new ResponseStatus(Status.Error, $"Unknown node {nodeId}.");
+                        }
+                        break;
+                    case Commands.Controller_SoftReset:
+                        SoftReset();
+                        break;
                 }
 
                 return returnValue;
@@ -197,6 +222,9 @@ namespace MIG.Interfaces.HomeAutomation
 
             switch (command)
             {
+                case Commands.Basic_Get:
+                    ReadClusterLevelData(node, endpoint);
+                    break;
                 case Commands.Control_On:
                     networkManager
                         .Send(endpointAddress, new OnCommand());
@@ -263,6 +291,12 @@ namespace MIG.Interfaces.HomeAutomation
                     eventValue = color;
                     raiseEvent = true;
                     break;
+                case Commands.NodeInfo_Get:
+                    ReadClusterData(node, endpoint);
+                    break;
+                default:
+                    returnValue = new ResponseStatus(Status.Error, "Command not understood.");
+                    break;
             }
 
             if (raiseEvent)
@@ -317,7 +351,6 @@ namespace MIG.Interfaces.HomeAutomation
                 {
                     var node = networkManager.Nodes[i];
                     AddNode(node);
-                    Console.WriteLine($"{i}. {node.LogicalType}: {node.NetworkAddress}");
                 }
                 return true;
             }
@@ -399,6 +432,14 @@ namespace MIG.Interfaces.HomeAutomation
             }
         }
 
+        private void SoftReset()
+        {
+            if (networkManager != null)
+            {
+                networkManager.Nodes.ForEach((n) => networkManager.RemoveNode(n));
+                networkManager.DatabaseManager.Clear();
+            }
+        }
         private bool ResetNetwork()
         {
             bool resetNetwork = false;
@@ -449,6 +490,38 @@ namespace MIG.Interfaces.HomeAutomation
             await networkManager.Send(endpointAddress, cmd);
         }
 
+        private async Task ReadClusterData(ZigBeeNode node, ZigBeeEndpoint endpoint)
+        {
+            var cluster = endpoint.GetInputCluster(ZclBasicCluster.CLUSTER_ID);
+            if (cluster != null)
+            {
+                string manufacturerName = (string)(await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_MANUFACTURERNAME));
+                string modelIdentifier = (string)(await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_MODELIDENTIFIER));
+                OnInterfacePropertyChanged(this.GetDomain(), node.NetworkAddress.ToString(CultureInfo.InvariantCulture), "ZigBee Node", EventPath_ManufacturerName, manufacturerName);
+                OnInterfacePropertyChanged(this.GetDomain(), node.NetworkAddress.ToString(CultureInfo.InvariantCulture), "ZigBee Node", EventPath_ModelIdentifier, modelIdentifier);
+            }
+        }
+
+        private async Task ReadClusterLevelData(ZigBeeNode node, ZigBeeEndpoint endpoint)
+        {
+            var cluster = endpoint.GetInputCluster(ZclLevelControlCluster.CLUSTER_ID);
+            if (cluster != null)
+            {
+                byte level = (byte)(await cluster.ReadAttributeValue(ZclLevelControlCluster.ATTR_CURRENTLEVEL));
+                OnInterfacePropertyChanged(this.GetDomain(), node.NetworkAddress.ToString(CultureInfo.InvariantCulture), "ZigBee Node", ModuleEvents.Status_Level, level / 255D);
+            }
+        }
+
+        private async Task DiscoverAttributes(ZigBeeEndpoint endpoint)
+        {
+            foreach (int clusterId in endpoint.GetInputClusterIds())
+            {
+                ZclCluster cluster = endpoint.GetInputCluster(clusterId);
+                if (!await cluster.DiscoverAttributes(true))
+                    Console.WriteLine("Error while discovering attributes for cluster {0}", cluster.GetClusterName());
+            }
+        }
+
         private void TestNode(ushort nodeId, ZigBeeEndpointAddress endpointAddress, ZigBeeEndpoint endpoint)
         {
             var watch = System.Diagnostics.Stopwatch.StartNew();
@@ -463,9 +536,10 @@ namespace MIG.Interfaces.HomeAutomation
             };
             networkManager.SendTransaction(nodeDescriptorRequest);
 
-            ReadClusterData(endpoint)
+            var node = networkManager.GetNode(nodeId);
+            ReadClusterData(node, endpoint)
                 .Wait();
-            ReadClusterLevelData(endpoint)
+            ReadClusterLevelData(node, endpoint)
                 .Wait();
             DiscoverAttributes(endpoint)
                 .Wait();
@@ -480,38 +554,6 @@ namespace MIG.Interfaces.HomeAutomation
             {
                 ZclCluster cluster = endpoint.GetInputCluster(clusterId);
                 //cluster.DiscoverAttributes(true).Wait();
-                if (!await cluster.DiscoverAttributes(true))
-                    Console.WriteLine("Error while discovering attributes for cluster {0}", cluster.GetClusterName());
-            }
-        }
-
-        private async Task ReadClusterData(ZigBeeEndpoint endpoint)
-        {
-            var cluster = endpoint.GetInputCluster(ZclBasicCluster.CLUSTER_ID);
-            if (cluster != null)
-            {
-                string manufacturerName = (string)(await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_MANUFACTURERNAME));
-                string model = (string)(await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_MODELIDENTIFIER));
-                Console.WriteLine($"Manufacturer Name = {manufacturerName}");
-                Console.WriteLine($"Model identifier = {model}");
-            }
-        }
-
-        private async Task ReadClusterLevelData(ZigBeeEndpoint endpoint)
-        {
-            var cluster = endpoint.GetInputCluster(ZclLevelControlCluster.CLUSTER_ID);
-            if (cluster != null)
-            {
-                byte level = (byte)(await cluster.ReadAttributeValue(ZclLevelControlCluster.ATTR_CURRENTLEVEL));
-                Console.WriteLine($"Current level = {level}");
-            }
-        }
-
-        private async Task DiscoverAttributes(ZigBeeEndpoint endpoint)
-        {
-            foreach (int clusterId in endpoint.GetInputClusterIds())
-            {
-                ZclCluster cluster = endpoint.GetInputCluster(clusterId);
                 if (!await cluster.DiscoverAttributes(true))
                     Console.WriteLine("Error while discovering attributes for cluster {0}", cluster.GetClusterName());
             }

@@ -18,6 +18,11 @@
       <Option Name="Port" Value="" />
     </Options>
   </Interface>
+  <Interface Domain="HomeAutomation.ZigBee" IsEnabled="false" AssemblyName="MIG.HomeAutomation.dll">
+    <Options>
+      <Option Name="Port" Value="/dev/ttyACM0" />
+    </Options>
+  </Interface>
   <Interface Domain="HomeAutomation.X10" IsEnabled="true" AssemblyName="MIG.HomeAutomation.dll">
     <Options>
       <!-- set Value to "USB" for CM15, "CM19" for CM19 and the serial port path for CM11 -->
