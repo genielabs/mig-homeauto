@@ -13,9 +13,13 @@ using ZigBeeNet.App.Discovery;
 using ZigBeeNet.App.IasClient;
 using ZigBeeNet.DataStore.Json;
 using ZigbeeNet.Hardware.ConBee;
+using ZigBeeNet.Hardware.Digi.XBee;
+using ZigBeeNet.Hardware.Ember;
+using ZigBeeNet.Hardware.TI.CC2531;
 using ZigBeeNet.Security;
 using ZigBeeNet.Tranport.SerialPort;
 using ZigBeeNet.Transaction;
+using ZigBeeNet.Transport;
 using ZigBeeNet.Util;
 using ZigBeeNet.ZCL;
 using ZigBeeNet.ZCL.Clusters;
@@ -98,7 +102,7 @@ namespace MIG.Interfaces.HomeAutomation
 
         private ZigBeeNetworkManager networkManager;
         private ZigBeeSerialPort zigbeePort;
-        private ZigbeeDongleConBee zigbeeDongle;
+        private IZigBeeTransportTransmit transportTransmit;
 
         private ushort lastRemovedNode;
         private ushort lastAddedNode;
@@ -193,8 +197,10 @@ namespace MIG.Interfaces.HomeAutomation
                     case Commands.Controller_SoftReset:
                         SoftReset();
                         break;
+                    default:
+                        returnValue = new ResponseStatus(Status.Error, "Command not understood.");
+                        break;
                 }
-
                 return returnValue;
             }
             
@@ -314,10 +320,30 @@ namespace MIG.Interfaces.HomeAutomation
             {
                 return false;
             }
-            
             zigbeePort = new ZigBeeSerialPort(portName, 115200);
-            zigbeeDongle = new ZigbeeDongleConBee(zigbeePort);
-            networkManager = new ZigBeeNetworkManager(zigbeeDongle);
+
+            string driverName = this.GetOption("Driver").Value;
+            if (String.IsNullOrEmpty(driverName))
+            {
+                return false;
+            }
+            
+            switch (driverName)
+            {
+                case "cc2531":
+                    transportTransmit = new ZigBeeDongleTiCc2531(zigbeePort); 
+                    break;
+                case "xbee":
+                    transportTransmit = new ZigBeeDongleXBee(zigbeePort);
+                    break;
+                case "ember":
+                    transportTransmit = new ZigBeeDongleEzsp(zigbeePort);
+                    break;
+                default: // "conbee"
+                    transportTransmit = new ZigbeeDongleConBee(zigbeePort); 
+                    break;
+            }
+            networkManager = new ZigBeeNetworkManager(transportTransmit);
 
             var dataStore = new JsonNetworkDataStore(
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "mig", "zigbee")
@@ -363,10 +389,10 @@ namespace MIG.Interfaces.HomeAutomation
             if (networkManager != null && networkManager.Transport != null)
             {
                 zigbeePort.Close();
-                zigbeeDongle.Shutdown();
+                transportTransmit.Shutdown();
                 networkManager.Shutdown();
                 zigbeePort = null;
-                zigbeeDongle = null;
+                transportTransmit = null;
                 networkManager = null;
             }
             modules.Clear();
@@ -418,6 +444,9 @@ namespace MIG.Interfaces.HomeAutomation
                 lastAddedNode = node.NetworkAddress;
                 OnInterfacePropertyChanged(this.GetDomain(), "0", "ZigBee Controller", "Controller.Status", "Added node " + node.NetworkAddress);
                 OnInterfaceModulesChanged(this.GetDomain());
+                // get manufacturer name and model identifier
+                var endpoint = node.GetEndpoints().FirstOrDefault();
+                ReadClusterData(node, endpoint);
             }
         }
 
@@ -497,8 +526,14 @@ namespace MIG.Interfaces.HomeAutomation
             {
                 string manufacturerName = (string)(await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_MANUFACTURERNAME));
                 string modelIdentifier = (string)(await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_MODELIDENTIFIER));
-                OnInterfacePropertyChanged(this.GetDomain(), node.NetworkAddress.ToString(CultureInfo.InvariantCulture), "ZigBee Node", EventPath_ManufacturerName, manufacturerName);
-                OnInterfacePropertyChanged(this.GetDomain(), node.NetworkAddress.ToString(CultureInfo.InvariantCulture), "ZigBee Node", EventPath_ModelIdentifier, modelIdentifier);
+                if (manufacturerName != null)
+                {
+                    OnInterfacePropertyChanged(this.GetDomain(), node.NetworkAddress.ToString(CultureInfo.InvariantCulture), "ZigBee Node", EventPath_ManufacturerName, manufacturerName);
+                }
+                if (modelIdentifier != null)
+                {
+                    OnInterfacePropertyChanged(this.GetDomain(), node.NetworkAddress.ToString(CultureInfo.InvariantCulture), "ZigBee Node", EventPath_ModelIdentifier, modelIdentifier);
+                }
             }
         }
 

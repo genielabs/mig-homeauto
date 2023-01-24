@@ -135,7 +135,7 @@ namespace MIG.Interfaces.HomeAutomation
                     module.CustomData = new X10ModuleData()
                     {
                         Level = m.Value.Level,
-                        Type = ModuleTypes.Switch
+                        Type = ModuleTypes.Generic
                     };
                     standardModules.Add(module);
                 }
@@ -176,7 +176,7 @@ namespace MIG.Interfaces.HomeAutomation
                 module.Address = kv.Value.Code;
                 module.CustomData = new X10ModuleData()
                 {
-                    Type = ModuleTypes.Switch            
+                    Type = ModuleTypes.Generic            
                 };
                 module.Description = "X10 Module";
                 modules.Add(module);
@@ -264,7 +264,7 @@ namespace MIG.Interfaces.HomeAutomation
                 // Parse house/unit
                 var houseCode = CM19Lib.Utility.HouseCodeFromString(nodeId);
                 var unitCode = CM19Lib.Utility.UnitCodeFromString(nodeId);
-                var module = GetSecurityModuleByAddress(nodeId, ModuleTypes.Switch);
+                var module = GetSecurityModuleByAddress(nodeId, ModuleTypes.Generic);
                 // module.CustomData is used to store the current level
                 switch (command)
                 {
