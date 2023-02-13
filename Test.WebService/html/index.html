@@ -26,22 +26,12 @@ evtSource.onmessage = function(e) {
 }
 
 // Listen for WebSocket events
-var exampleSocket = new WebSocket("ws://localhost:8181/events");
+var exampleSocket = new WebSocket("ws://localhost:8190/events");
 exampleSocket.onmessage = function (e) {
     var newElement = document.createElement("li");
     newElement.innerHTML = "WebSocket: " + e.data;
     document.getElementById('eventList').appendChild(newElement);
 }
-
-// Send a command though web socket
-setInterval(function(){
-    // Send a request using Web Socket
-    exampleSocket.send("myapp/demo/echo/Hello+World");
-    // Send a request using standard HTTP
-    $.get('/api/myapp/demo/ping', function(res){
-        console.log(res);
-    });
-}, 3000);
 
 </script>
 
