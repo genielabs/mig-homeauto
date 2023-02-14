@@ -177,7 +177,6 @@ namespace MIG.Interfaces.HomeAutomation
                             {
                                 break;
                             }
-
                             Thread.Sleep(DelayBetweenAttempts);
                         }
                         coord.PermitJoin(false);
@@ -417,6 +416,11 @@ namespace MIG.Interfaces.HomeAutomation
         {
             OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), eventDescription, propertyPath, propertyValue);
         }
+
+        public void ControllerEvent(string eventPath, string eventPayload)
+        {
+            OnInterfacePropertyChanged(this.GetDomain(), "0", "ZigBee Controller", eventPath, eventPayload);
+        }
         
         public ZigBeeNode GetNode(ushort nodeId)
         {
@@ -441,11 +445,11 @@ namespace MIG.Interfaces.HomeAutomation
                 });
                 if (initialized)
                 {
-                    lastAddedNode = node.IeeeAddress.ToString();
-                    OnInterfacePropertyChanged(this.GetDomain(), "0", "ZigBee Controller", "Controller.Status", "Added node " + node.IeeeAddress);
+                    ControllerEvent("Controller.Status", "Added node " + node.IeeeAddress);
                     // get manufacturer name and model identifier
                     ReadClusterData(node).Wait();
                     OnInterfaceModulesChanged(this.GetDomain());
+                    lastAddedNode = node.IeeeAddress.ToString();
                 }
             }
         }
@@ -455,7 +459,7 @@ namespace MIG.Interfaces.HomeAutomation
             int removed = modules.RemoveAll((m) => m.Address == node.IeeeAddress.ToString());
             if (removed > 0)
             {
-                OnInterfacePropertyChanged(this.GetDomain(), "0", "ZigBee Controller", "Controller.Status", "Removed node " + node.IeeeAddress);
+                ControllerEvent("Controller.Status", "Removed node " + node.IeeeAddress);
                 OnInterfaceModulesChanged(this.GetDomain());
             }
         }
@@ -719,7 +723,7 @@ namespace MIG.Interfaces.HomeAutomation
                 var node = _zigBee.GetNode(nodeId);
                 if (command is DeviceAnnounce)
                 {
-//                    Console.WriteLine("DEVICE ANNOUNCE");
+                    _zigBee.ControllerEvent("Controller.Status", "Announce node " + node.IeeeAddress);
                 }
                 else if (command is ReportAttributesCommand)
                 {
