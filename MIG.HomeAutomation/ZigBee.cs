@@ -447,9 +447,12 @@ namespace MIG.Interfaces.HomeAutomation
                 {
                     ControllerEvent("Controller.Status", "Added node " + node.IeeeAddress);
                     // get manufacturer name and model identifier
-                    ReadClusterData(node).Wait();
-                    OnInterfaceModulesChanged(this.GetDomain());
-                    lastAddedNode = node.IeeeAddress.ToString();
+                    Task.Run(() =>
+                    {
+                        ReadClusterData(node).Wait();
+                        OnInterfaceModulesChanged(this.GetDomain());
+                        lastAddedNode = node.IeeeAddress.ToString();
+                    });
                 }
             }
         }
@@ -596,6 +599,7 @@ namespace MIG.Interfaces.HomeAutomation
         private async Task ReadClusterData(ZigBeeNode node)
         {
             var endpoint = node.GetEndpoints().FirstOrDefault();
+            // Get manufacturer / model
             var cluster = endpoint?.GetInputCluster(ZclBasicCluster.CLUSTER_ID);
             if (cluster != null)
             {
@@ -609,66 +613,57 @@ namespace MIG.Interfaces.HomeAutomation
                 {
                     OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", EventPath_ManufacturerName, manufacturerName);
                 }
-                // try to probe / read current device values
-                var module = modules.Find((m) => m.Address == node.IeeeAddress.ToString());
+            }
+            //
+            // Try to probe / read current device values
+            //
+            var module = modules.Find((m) => m.Address == node.IeeeAddress.ToString());
+            if (module != null && module.CustomData.Type == ModuleTypes.Generic)
+            {
+
                 // Color Light Bulb
-                if (module != null && module.CustomData.Type == ModuleTypes.Generic)
+                var colorCluster = endpoint?.GetInputCluster(ZclColorControlCluster.CLUSTER_ID);
+                //byte colorCapabilities = (byte)(await colorCluster.ReadAttributeValue(ZclColorControlCluster.ATTR_COLORMODE));
+                //OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", ModuleEvents.Status_Level, level / 254D);
+                if (colorCluster != null)
                 {
-                    try
-                    {
-                        var colorCluster = endpoint?.GetInputCluster(ZclColorControlCluster.CLUSTER_ID);
-                        //byte colorCapabilities = (byte)(await colorCluster.ReadAttributeValue(ZclColorControlCluster.ATTR_COLORMODE));
-                        //OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", ModuleEvents.Status_Level, level / 254D);
-                        if (colorCluster != null)
-                        {
-                            module.CustomData.Type = ModuleTypes.Color;
-                            return;
-                        }
-                    }
-                    catch (Exception e)
-                    {
-//                    Console.WriteLine(e);
-                    }
-                    // Dimmer
-                    try
-                    {
-                        // Binary switch level / basic.get
-                        var levelCluster = endpoint?.GetInputCluster(ZclLevelControlCluster.CLUSTER_ID);
-                        byte level = (byte)(await levelCluster.ReadAttributeValue(ZclLevelControlCluster.ATTR_CURRENTLEVEL));
-                        OnInterfacePropertyChanged
-                        (
-                            this.GetDomain(),
-                            node.IeeeAddress.ToString(),
-                            "ZigBee Node",
-                            ModuleEvents.Status_Level,
-                            level / 254D
-                        );
-                        module.CustomData.Type = ModuleTypes.Dimmer;
-                        return;
-                    }
-                    catch (Exception e)
-                    {
-//                    Console.WriteLine(e);
-                    }
-                    // Sensor
-                    try
-                    {
-                        var levelCluster = endpoint?.GetInputCluster(ZclIasZoneCluster.CLUSTER_ID);
-                        byte level = (byte)(await levelCluster.ReadAttributeValue(ZclIasZoneCluster.ATTR_ZONESTATUS));
-                        OnInterfacePropertyChanged
-                        (
-                            this.GetDomain(),
-                            node.IeeeAddress.ToString(),
-                            "ZigBee Node",
-                            ModuleEvents.Status_Level,
-                            level
-                        );
-                        module.CustomData.Type = ModuleTypes.Sensor;
-                    }
-                    catch (Exception e)
-                    {
-//                    Console.WriteLine(e);
-                    }
+                    module.CustomData.Type = ModuleTypes.Color;
+                    UpdateModules();
+                    return;
+                }
+
+                // Dimmer or Binary switch level / basic.get
+                var levelCluster = endpoint?.GetInputCluster(ZclLevelControlCluster.CLUSTER_ID);
+                if (levelCluster != null)
+                {
+                    byte level = (byte)(await levelCluster.ReadAttributeValue(ZclLevelControlCluster.ATTR_CURRENTLEVEL));
+                    OnInterfacePropertyChanged
+                    (
+                        this.GetDomain(),
+                        node.IeeeAddress.ToString(),
+                        "ZigBee Node",
+                        ModuleEvents.Status_Level,
+                        level / 254D
+                    );
+                    module.CustomData.Type = ModuleTypes.Dimmer;
+                    UpdateModules();
+                    return;
+                }
+
+                // Sensor
+                var iasZoneCluster = endpoint?.GetInputCluster(ZclIasZoneCluster.CLUSTER_ID);
+                if (iasZoneCluster != null)
+                {
+                    byte level = (byte)(await iasZoneCluster.ReadAttributeValue(ZclIasZoneCluster.ATTR_ZONESTATUS));
+                    OnInterfacePropertyChanged
+                    (
+                        this.GetDomain(),
+                        node.IeeeAddress.ToString(),
+                        "ZigBee Node",
+                        ModuleEvents.Status_Level,
+                        level
+                    );
+                    module.CustomData.Type = ModuleTypes.Sensor;
                     UpdateModules();
                 }
             }
