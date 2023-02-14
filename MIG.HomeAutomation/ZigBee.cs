@@ -107,9 +107,9 @@ namespace MIG.Interfaces.HomeAutomation
         private IZigBeeTransportTransmit transportTransmit;
 
         private string lastAddedNode;
+        private string lastRemovedNode;
         private bool initialized;
         private const string ZigBeeModulesDb = "zigbee_modules.xml";
-
 
         #endregion
         
@@ -187,11 +187,23 @@ namespace MIG.Interfaces.HomeAutomation
                         var nodeToRemove = networkManager.GetNode(new IeeeAddress(nodeId));
                         if (nodeToRemove != null && nodeToRemove.NetworkAddress > 0)
                         {
-                            networkManager
-                                .Leave(nodeToRemove.NetworkAddress, nodeToRemove.IeeeAddress, true)
-                                .Wait();
-                            RemoveNode(nodeToRemove);
-                            returnValue = new ResponseStatus(Status.Ok, $"Removed node {nodeToRemove.IeeeAddress}.");
+                            lastRemovedNode = "";
+                            new Thread(()=>
+                            {
+                                networkManager
+                                    .Leave(nodeToRemove.NetworkAddress, nodeToRemove.IeeeAddress, true)
+                                    .Wait();
+                                if (String.IsNullOrEmpty(lastRemovedNode)) RemoveNode(nodeToRemove);
+                            }).Start();
+                            for (int i = 0; i < NumberOfRemoveAttempts; i++)
+                            {
+                                if (!String.IsNullOrEmpty(lastRemovedNode))
+                                {
+                                    break;
+                                }
+                                Thread.Sleep(DelayBetweenAttempts);
+                            }
+                            returnValue = new ResponseStatus(Status.Ok, $"Removed node {lastRemovedNode}.");
                         }
                         else
                         {
@@ -301,7 +313,7 @@ namespace MIG.Interfaces.HomeAutomation
                     raiseEvent = true;
                     break;
                 case Commands.NodeInfo_Get:
-                    ReadClusterData(node);
+                    QueryNodeData(node);
                     break;
                 default:
                     returnValue = new ResponseStatus(Status.Error, "Command not understood.");
@@ -318,8 +330,10 @@ namespace MIG.Interfaces.HomeAutomation
         public bool Connect()
         {
             initialized = false;
-            DeserializeModules(ZigBeeModulesDb, modules);
             Disconnect();
+            // load cached modules
+            DeserializeModules(ZigBeeModulesDb, modules);
+            // initialize controller
             string portName = this.GetOption("Port").Value;
             if (String.IsNullOrEmpty(portName))
             {
@@ -432,27 +446,38 @@ namespace MIG.Interfaces.HomeAutomation
             if (node.LogicalType == NodeDescriptor.LogicalType.ROUTER || node.LogicalType == NodeDescriptor.LogicalType.END_DEVICE)
             {
                 string address = node.IeeeAddress.ToString();
-                modules.RemoveAll((m) => m.Address == address);
-                modules.Add(new InterfaceModule()
+                var module = modules.Find((m) => m.Address == address);
+                if (module == null)
                 {
-                    Domain = "HomeAutomation.ZigBee",
-                    Address = address,
-                    CustomData = new ZigBeeNodeData()
+                    module = new InterfaceModule()
                     {
-                        // TODO: get type from device node
-                        Type = ModuleTypes.Generic
-                    }
-                });
+                        Domain = "HomeAutomation.ZigBee",
+                        Address = address,
+                        CustomData = new ZigBeeNodeData()
+                        {
+                            // TODO: get type from device node
+                            Type = ModuleTypes.Generic
+                        }
+                    };
+                    modules.Add(module);
+                }
                 if (initialized)
                 {
                     ControllerEvent("Controller.Status", "Added node " + node.IeeeAddress);
                     // get manufacturer name and model identifier
-                    Task.Run(() =>
+                    new Thread(() =>
                     {
-                        ReadClusterData(node).Wait();
+                        try
+                        {
+                            QueryNodeData(node).Wait();
+                        }
+                        catch (Exception e)
+                        {
+                            //Console.WriteLine(e);
+                        }
                         OnInterfaceModulesChanged(this.GetDomain());
                         lastAddedNode = node.IeeeAddress.ToString();
-                    });
+                    }).Start();
                 }
             }
         }
@@ -464,6 +489,7 @@ namespace MIG.Interfaces.HomeAutomation
             {
                 ControllerEvent("Controller.Status", "Removed node " + node.IeeeAddress);
                 OnInterfaceModulesChanged(this.GetDomain());
+                lastRemovedNode = node.IeeeAddress.ToString();
             }
         }
 
@@ -570,7 +596,6 @@ namespace MIG.Interfaces.HomeAutomation
             if (File.Exists(fileName)) {
                 File.Delete(fileName);
             }
-            modules.Clear();
             Connect();
         }
 
@@ -596,7 +621,7 @@ namespace MIG.Interfaces.HomeAutomation
             await networkManager.Send(endpointAddress, cmd);
         }
 
-        private async Task ReadClusterData(ZigBeeNode node)
+        private async Task QueryNodeData(ZigBeeNode node)
         {
             var endpoint = node.GetEndpoints().FirstOrDefault();
             // Get manufacturer / model
