@@ -5,6 +5,8 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml;
+using System.Xml.Serialization;
 using MIG.Config;
 using MIG.Interfaces.HomeAutomation.Commons;
 using ZigBeeNet;
@@ -20,7 +22,6 @@ using ZigBeeNet.Tranport.SerialPort;
 using ZigBeeNet.Transaction;
 using ZigBeeNet.Transport;
 using ZigBeeNet.Util;
-using ZigBeeNet.ZCL;
 using ZigBeeNet.ZCL.Clusters;
 using ZigBeeNet.ZCL.Clusters.ColorControl;
 using ZigBeeNet.ZCL.Clusters.General;
@@ -97,7 +98,7 @@ namespace MIG.Interfaces.HomeAutomation
         
         #region Private fields
 
-        private const int NumberOfAddAttempts = 60;
+        private const int NumberOfAddAttempts = 120;
         private const int NumberOfRemoveAttempts = 60;
         private const int DelayBetweenAttempts = 500;
 
@@ -105,8 +106,10 @@ namespace MIG.Interfaces.HomeAutomation
         private ZigBeeSerialPort zigbeePort;
         private IZigBeeTransportTransmit transportTransmit;
 
-        private string lastRemovedNode;
         private string lastAddedNode;
+        private bool initialized;
+        private const string ZigBeeModulesDb = "zigbee_modules.xml";
+
 
         #endregion
         
@@ -186,8 +189,9 @@ namespace MIG.Interfaces.HomeAutomation
                         if (nodeToRemove != null && nodeToRemove.NetworkAddress > 0)
                         {
                             networkManager
-                                .Leave(nodeToRemove.NetworkAddress, nodeToRemove.IeeeAddress, true);
-                            networkManager.RemoveNode(nodeToRemove);
+                                .Leave(nodeToRemove.NetworkAddress, nodeToRemove.IeeeAddress, true)
+                                .Wait();
+                            RemoveNode(nodeToRemove);
                             returnValue = new ResponseStatus(Status.Ok, $"Removed node {nodeToRemove.IeeeAddress}.");
                         }
                         else
@@ -314,6 +318,8 @@ namespace MIG.Interfaces.HomeAutomation
 
         public bool Connect()
         {
+            initialized = false;
+            DeserializeModules(ZigBeeModulesDb, modules);
             Disconnect();
             string portName = this.GetOption("Port").Value;
             if (String.IsNullOrEmpty(portName))
@@ -345,9 +351,7 @@ namespace MIG.Interfaces.HomeAutomation
             }
             networkManager = new ZigBeeNetworkManager(transportTransmit);
 
-            var dataStore = new JsonNetworkDataStore(
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "mig", "zigbee")
-            );
+            var dataStore = new JsonNetworkDataStore(GetDbFullPath());
             networkManager.SetNetworkDataStore(dataStore);
             // Add discovery extension
             ZigBeeDiscoveryExtension discoveryExtension = new ZigBeeDiscoveryExtension();
@@ -372,13 +376,17 @@ namespace MIG.Interfaces.HomeAutomation
             
             if (startupSucceded == ZigBeeStatus.SUCCESS)
             {
+                // disable node joining
+                ZigBeeNode coord = networkManager.GetNode(0);
+                coord.PermitJoin(false);
                 // get stored node list
                 for (int i = 0; i < networkManager.Nodes.Count; i++)
                 {
                     var node = networkManager.Nodes[i];
                     AddNode(node);
                 }
-                return true;
+                OnInterfaceModulesChanged(this.GetDomain());
+                return initialized = true;
             }
 
             return false;
@@ -410,24 +418,9 @@ namespace MIG.Interfaces.HomeAutomation
             OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), eventDescription, propertyPath, propertyValue);
         }
         
-        protected virtual void OnInterfaceModulesChanged(string domain)
+        public ZigBeeNode GetNode(ushort nodeId)
         {
-            if (InterfaceModulesChanged != null)
-            {
-                var args = new InterfaceModulesChangedEventArgs(domain);
-                InterfaceModulesChanged(this, args);
-            }
-        }
-        protected virtual void OnInterfacePropertyChanged(string domain, string source, string description, string propertyPath, object propertyValue)
-        {
-            if (InterfacePropertyChanged != null)
-            {
-                var args = new InterfacePropertyChangedEventArgs(domain, source, description, propertyPath, propertyValue);
-                new Thread(() =>
-                {
-                    InterfacePropertyChanged(this, args);
-                }).Start();
-            }
+            return networkManager.GetNode(nodeId);
         }
 
         public void AddNode(ZigBeeNode node)
@@ -446,11 +439,14 @@ namespace MIG.Interfaces.HomeAutomation
                         Type = ModuleTypes.Generic
                     }
                 });
-                lastAddedNode = node.IeeeAddress.ToString();
-                OnInterfacePropertyChanged(this.GetDomain(), "0", "ZigBee Controller", "Controller.Status", "Added node " + node.IeeeAddress);
-                // get manufacturer name and model identifier
-                ReadClusterData(node);
-                OnInterfaceModulesChanged(this.GetDomain());
+                if (initialized)
+                {
+                    lastAddedNode = node.IeeeAddress.ToString();
+                    OnInterfacePropertyChanged(this.GetDomain(), "0", "ZigBee Controller", "Controller.Status", "Added node " + node.IeeeAddress);
+                    // get manufacturer name and model identifier
+                    ReadClusterData(node).Wait();
+                    OnInterfaceModulesChanged(this.GetDomain());
+                }
             }
         }
 
@@ -459,7 +455,6 @@ namespace MIG.Interfaces.HomeAutomation
             int removed = modules.RemoveAll((m) => m.Address == node.IeeeAddress.ToString());
             if (removed > 0)
             {
-                lastRemovedNode = node.IeeeAddress.ToString();
                 OnInterfacePropertyChanged(this.GetDomain(), "0", "ZigBee Controller", "Controller.Status", "Removed node " + node.IeeeAddress);
                 OnInterfaceModulesChanged(this.GetDomain());
             }
@@ -470,19 +465,106 @@ namespace MIG.Interfaces.HomeAutomation
             // TODO: ....
         }
 
-        public ZigBeeNode GetNode(ushort nodeId)
+        public void UpdateModules()
         {
-            return networkManager.GetNode(nodeId);
+            SerializeModules(ZigBeeModulesDb, modules);
         }
-        
+
+        private void SerializeModules(string fileName, List<InterfaceModule> list) {
+            lock (this)
+            {
+                try
+                {
+                    XmlAttributeOverrides overrides = new XmlAttributeOverrides();
+                    XmlAttributes attribs = new XmlAttributes();
+                    attribs.Xmlns = false;
+                    attribs.XmlElements.Add(new XmlElementAttribute("CustomData", typeof(ZigBeeNodeData)));
+                    overrides.Add(typeof(InterfaceModule), "CustomData", attribs);
+                    var serializer = new XmlSerializer(typeof(List<InterfaceModule>), overrides);
+                    XmlWriterSettings settings = new XmlWriterSettings
+                    {
+                        Indent = true,
+                        OmitXmlDeclaration = true
+                    };
+                    var emptyNamespaces = new XmlSerializerNamespaces(new[] { XmlQualifiedName.Empty });
+                    using (XmlWriter xmlWriter = XmlWriter.Create(GetDbFullPath(fileName), settings))
+                    {
+                        serializer.Serialize(xmlWriter, list, emptyNamespaces); 
+                    }
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                }
+            }
+        }
+        private void DeserializeModules(string fileName, List<InterfaceModule> list) {
+            try
+            {
+                fileName = GetDbFullPath(fileName);
+                if (File.Exists(fileName))
+                {
+                    XmlAttributeOverrides overrides = new XmlAttributeOverrides();
+                    XmlAttributes attribs = new XmlAttributes();
+                    attribs.XmlElements.Add(new XmlElementAttribute("CustomData", typeof(ZigBeeNodeData)));
+                    overrides.Add(typeof(InterfaceModule), "CustomData", attribs);
+                    var serializer = new XmlSerializer(typeof(List<InterfaceModule>), overrides);
+                    using (var stream = File.OpenRead(fileName))
+                    {
+                        var other = (List<InterfaceModule>)(serializer.Deserialize(stream));
+                        list.Clear();
+                        list.AddRange(other);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+        }
+
+        protected virtual void OnInterfaceModulesChanged(string domain)
+        {
+            if (InterfaceModulesChanged != null)
+            {
+                var args = new InterfaceModulesChangedEventArgs(domain);
+                InterfaceModulesChanged(this, args);
+            }
+            UpdateModules();
+        }
+        protected virtual void OnInterfacePropertyChanged(string domain, string source, string description, string propertyPath, object propertyValue)
+        {
+            if (InterfacePropertyChanged != null)
+            {
+                var args = new InterfacePropertyChangedEventArgs(domain, source, description, propertyPath, propertyValue);
+                new Thread(() =>
+                {
+                    InterfacePropertyChanged(this, args);
+                }).Start();
+            }
+        }
+
+        private static string GetDbFullPath(string file = "")
+        {
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "mig", "zigbee");
+            Directory.CreateDirectory(path);
+            return !String.IsNullOrEmpty(file) ? Path.Combine(path, file) : path;
+        }
+
         private void SoftReset()
         {
             if (networkManager != null)
             {
                 networkManager.Nodes.ForEach((n) => networkManager.RemoveNode(n));
                 networkManager.DatabaseManager.Clear();
-                Connect();
             }
+            // delete zigbee modules database
+            var fileName = GetDbFullPath(ZigBeeModulesDb);
+            if (File.Exists(fileName)) {
+                File.Delete(fileName);
+            }
+            modules.Clear();
+            Connect();
         }
 
         private async Task SetLevel(ZigBeeEndpointAddress endpointAddress, int level, ushort transition)
@@ -583,6 +665,7 @@ namespace MIG.Interfaces.HomeAutomation
                     {
 //                    Console.WriteLine(e);
                     }
+                    UpdateModules();
                 }
             }
         }
@@ -596,29 +679,20 @@ namespace MIG.Interfaces.HomeAutomation
                 OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", ModuleEvents.Status_Level, level / 254D);
             }
         }
-
-        private async Task DiscoverAttributes(ZigBeeEndpoint endpoint)
-        {
-            foreach (int clusterId in endpoint.GetInputClusterIds())
-            {
-                ZclCluster cluster = endpoint.GetInputCluster(clusterId);
-                if (!await cluster.DiscoverAttributes(true))
-                    Console.WriteLine("Error while discovering attributes for cluster {0}", cluster.GetClusterName());
-            }
-        }
     }
 
+    [Serializable]
     public class ZigBeeNodeData
     {
-        private double level = 0;
+        private double _level;
         public double Level {
-            get => level;
+            get => _level;
             set
             {
-                level = value;
-                if (level != 0)
+                _level = value;
+                if (_level != 0)
                 {
-                    LastLevel = level;
+                    LastLevel = _level;
                 }
             }
         }
@@ -629,11 +703,11 @@ namespace MIG.Interfaces.HomeAutomation
     
     public class ZigBeeCommandListener : IZigBeeCommandListener
     {
-        private ZigBee _zigBee;
+        private readonly ZigBee _zigBee;
 
-        public ZigBeeCommandListener(ZigBee zigBee)
+        public ZigBeeCommandListener(ZigBee zigBeeInterface)
         {
-            _zigBee = zigBee;
+            _zigBee = zigBeeInterface;
         }
         public void CommandReceived(ZigBeeCommand command)
         {
@@ -705,37 +779,38 @@ namespace MIG.Interfaces.HomeAutomation
         private void CheckType(ZigBeeNode node, ModuleTypes moduleType)
         {
             var module = _zigBee.GetModules().Find((m) => m.Address == node.IeeeAddress.ToString());
-            var moduleData = (module.CustomData as ZigBeeNodeData);
+            var moduleData = (module?.CustomData as ZigBeeNodeData);
             if (module != null && moduleData != null && moduleData.Type == ModuleTypes.Generic)
             {
                 moduleData.Type = moduleType;
+                _zigBee.UpdateModules();
             }
         }
     }
 
     public class ZigBeeNetworkNodeListener : IZigBeeNetworkNodeListener
     {
-        private readonly ZigBee zigBee;
+        private readonly ZigBee _zigBee;
         public ZigBeeNetworkNodeListener(ZigBee zigBeeInterface)
         {
-            zigBee = zigBeeInterface;
+            _zigBee = zigBeeInterface;
         }
         public void NodeAdded(ZigBeeNode node)
         {
             if (node.NetworkAddress != 0)
             {
-                zigBee.AddNode(node);
+                _zigBee.AddNode(node);
             }
         }
 
         public void NodeRemoved(ZigBeeNode node)
         {
-            zigBee.RemoveNode(node);
+            _zigBee.RemoveNode(node);
         }
 
         public void NodeUpdated(ZigBeeNode node)
         {
-            zigBee.UpdateNode(node);
+            _zigBee.UpdateNode(node);
         }
     }
 }
