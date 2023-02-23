@@ -1,3 +1,26 @@
+/*
+  This file is part of MIG (https://github.com/genielabs/mig-service-dotnet)
+ 
+  Copyright (2012-2023) G-Labs (https://github.com/genielabs)
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+/*
+ *     Author: Generoso Martello <gene@homegenie.it>
+ *     Project Homepage: https://github.com/genielabs/mig-service-dotnet
+ */
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -26,6 +49,7 @@ using ZigBeeNet.ZCL.Clusters;
 using ZigBeeNet.ZCL.Clusters.ColorControl;
 using ZigBeeNet.ZCL.Clusters.General;
 using ZigBeeNet.ZCL.Clusters.IasZone;
+using ZigBeeNet.ZCL.Clusters.Identify;
 using ZigBeeNet.ZCL.Clusters.LevelControl;
 using ZigBeeNet.ZCL.Clusters.OnOff;
 using ZigBeeNet.ZDO.Command;
@@ -93,6 +117,10 @@ namespace MIG.Interfaces.HomeAutomation
             = "ZigBeeNode.ModelIdentifier";
         const string EventPath_VersionReport
             = "ZigBeeNode.VersionReport";
+        const string EventPath_GenericDeviceType
+            = "ZigBeeNode.GenericDeviceType";
+        const string EventPath_Endpoints
+            = "ZigBeeNode.Endpoints";
 
         #endregion
         
@@ -108,7 +136,6 @@ namespace MIG.Interfaces.HomeAutomation
 
         private string lastAddedNode;
         private string lastRemovedNode;
-        private bool initialized;
         private const string ZigBeeModulesDb = "zigbee_modules.xml";
 
         #endregion
@@ -329,7 +356,6 @@ namespace MIG.Interfaces.HomeAutomation
 
         public bool Connect()
         {
-            initialized = false;
             Disconnect();
             // load cached modules
             DeserializeModules(ZigBeeModulesDb, modules);
@@ -392,14 +418,8 @@ namespace MIG.Interfaces.HomeAutomation
                 // disable node joining
                 ZigBeeNode coord = networkManager.GetNode(0);
                 coord.PermitJoin(false);
-                // get stored node list
-                for (int i = 0; i < networkManager.Nodes.Count; i++)
-                {
-                    var node = networkManager.Nodes[i];
-                    AddNode(node);
-                }
                 OnInterfaceModulesChanged(this.GetDomain());
-                return initialized = true;
+                return true;
             }
 
             return false;
@@ -454,30 +474,30 @@ namespace MIG.Interfaces.HomeAutomation
                         Domain = "HomeAutomation.ZigBee",
                         Address = address,
                         CustomData = new ZigBeeNodeData()
-                        {
-                            // TODO: get type from device node
-                            Type = ModuleTypes.Generic
-                        }
                     };
                     modules.Add(module);
                 }
-                if (initialized)
+                if (module.CustomData.Type == ModuleTypes.Generic)
                 {
                     ControllerEvent("Controller.Status", "Added node " + node.IeeeAddress);
                     // get manufacturer name and model identifier
-                    new Thread(() =>
+                    var t = new Thread(() =>
                     {
                         try
                         {
-                            QueryNodeData(node).Wait();
+                            QueryNodeData(node)
+                                .Wait();
                         }
                         catch (Exception e)
                         {
                             //Console.WriteLine(e);
                         }
+
                         OnInterfaceModulesChanged(this.GetDomain());
                         lastAddedNode = node.IeeeAddress.ToString();
-                    }).Start();
+                    });
+                    t.Start();
+                    t.Join();
                 }
             }
         }
@@ -556,14 +576,28 @@ namespace MIG.Interfaces.HomeAutomation
             }
         }
 
+        private CancellationTokenSource _updateModulesTokenSource;
         protected virtual void OnInterfaceModulesChanged(string domain)
         {
-            if (InterfaceModulesChanged != null)
+            if (_updateModulesTokenSource != null)
             {
-                var args = new InterfaceModulesChangedEventArgs(domain);
-                InterfaceModulesChanged(this, args);
+                _updateModulesTokenSource.Cancel();
             }
-            UpdateModules();
+            _updateModulesTokenSource = new CancellationTokenSource();
+            new Thread((token) =>
+            {
+                Thread.Sleep(500);
+                if (((CancellationToken)token).IsCancellationRequested)
+                {
+                    return;
+                }
+                if (InterfaceModulesChanged != null)
+                {
+                    var args = new InterfaceModulesChangedEventArgs(domain);
+                    InterfaceModulesChanged(this, args);
+                }
+                UpdateModules();
+            }).Start(_updateModulesTokenSource.Token);
         }
         protected virtual void OnInterfacePropertyChanged(string domain, string source, string description, string propertyPath, object propertyValue)
         {
@@ -623,73 +657,114 @@ namespace MIG.Interfaces.HomeAutomation
 
         private async Task QueryNodeData(ZigBeeNode node)
         {
-            var endpoint = node.GetEndpoints().FirstOrDefault();
-            // Get manufacturer / model
-            var cluster = endpoint?.GetInputCluster(ZclBasicCluster.CLUSTER_ID);
-            if (cluster != null)
+            OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", EventPath_Endpoints, node.GetEndpoints().Count);
+            bool occupancySensing = false;
+            bool colorControl = false;
+            bool levelControl = false;
+            bool onOff = false;
+            bool iasZone = false;
+            bool electricalMeasurement = false;
+            bool illuminanceMeasurement = false;
+            bool temperatureMeasurement = false;
+            bool windowCovering = false;
+            bool metering = false;
+            int ec = 0;
+            foreach (var endpoint in node.GetEndpoints())
             {
-                string modelIdentifier = (string)(await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_MODELIDENTIFIER));
-                if (modelIdentifier != null)
+                OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", $"{EventPath_Endpoints}.{ec}.ID", endpoint.EndpointId);
+                foreach (var clusterId in endpoint.GetInputClusterIds())
                 {
-                    OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", EventPath_ModelIdentifier, modelIdentifier);
+                    switch (clusterId)
+                    {
+                        case ZclOnOffCluster.CLUSTER_ID:
+                            onOff = true;
+                            break;
+                        case ZclIasZoneCluster.CLUSTER_ID:
+                            iasZone = true;
+                            break;
+                        case ZclColorControlCluster.CLUSTER_ID:
+                            colorControl = true;
+                            break;
+                        case ZclLevelControlCluster.CLUSTER_ID:
+                            levelControl = true;
+                            break;
+                        case ZclElectricalMeasurementCluster.CLUSTER_ID:
+                            electricalMeasurement = true;
+                            break;
+                        case ZclIlluminanceLevelSensingCluster.CLUSTER_ID:
+                        case ZclIlluminanceMeasurementCluster.CLUSTER_ID:
+                            illuminanceMeasurement = true;
+                            break;
+                        case ZclOccupancySensingCluster.CLUSTER_ID:
+                            occupancySensing = true;
+                            break;
+                        case ZclWindowCoveringCluster.CLUSTER_ID:
+                            windowCovering = true;
+                            break;
+                        case ZclTemperatureMeasurementCluster.CLUSTER_ID:
+                            temperatureMeasurement = true;
+                            break;
+                        case ZclMeteringCluster.CLUSTER_ID:
+                            metering = true;
+                            break;
+                    }
+                    var clusterName = endpoint.GetInputCluster(clusterId)
+                        .GetClusterName();
+                    OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", $"{EventPath_Endpoints}.{ec}.{clusterId}", clusterName);
                 }
-                string manufacturerName = (string)(await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_MANUFACTURERNAME));
-                if (manufacturerName != null)
+                ec++;
+            }
+            var defaultEndpoint = node.GetEndpoints().FirstOrDefault();
+            if (defaultEndpoint != null)
+            {
+                // Get manufacturer / model
+                var cluster = defaultEndpoint.GetInputCluster(ZclBasicCluster.CLUSTER_ID);
+                if (cluster != null)
                 {
-                    OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", EventPath_ManufacturerName, manufacturerName);
+                    var genericDeviceType = (await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_GENERICDEVICETYPE));
+                    if (genericDeviceType != null)
+                    {
+                        OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", EventPath_GenericDeviceType, genericDeviceType);
+                    }
+                    string modelIdentifier = (string)(await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_MODELIDENTIFIER));
+                    if (modelIdentifier != null)
+                    {
+                        OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", EventPath_ModelIdentifier, modelIdentifier);
+                    }
+                    string manufacturerName = (string)(await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_MANUFACTURERNAME));
+                    if (manufacturerName != null)
+                    {
+                        OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", EventPath_ManufacturerName, manufacturerName);
+                    }
                 }
             }
-            //
-            // Try to probe / read current device values
-            //
+            // Probe device type
             var module = modules.Find((m) => m.Address == node.IeeeAddress.ToString());
             if (module != null && module.CustomData.Type == ModuleTypes.Generic)
             {
-
-                // Color Light Bulb
-                var colorCluster = endpoint?.GetInputCluster(ZclColorControlCluster.CLUSTER_ID);
-                //byte colorCapabilities = (byte)(await colorCluster.ReadAttributeValue(ZclColorControlCluster.ATTR_COLORMODE));
-                //OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", ModuleEvents.Status_Level, level / 254D);
-                if (colorCluster != null)
+                if (colorControl)
                 {
                     module.CustomData.Type = ModuleTypes.Color;
                     UpdateModules();
                     return;
                 }
-
-                // Dimmer or Binary switch level / basic.get
-                var levelCluster = endpoint?.GetInputCluster(ZclLevelControlCluster.CLUSTER_ID);
-                if (levelCluster != null)
+                if (levelControl && !occupancySensing)
                 {
-                    byte level = (byte)(await levelCluster.ReadAttributeValue(ZclLevelControlCluster.ATTR_CURRENTLEVEL));
-                    OnInterfacePropertyChanged
-                    (
-                        this.GetDomain(),
-                        node.IeeeAddress.ToString(),
-                        "ZigBee Node",
-                        ModuleEvents.Status_Level,
-                        level / 254D
-                    );
-                    module.CustomData.Type = ModuleTypes.Dimmer;
+                    module.CustomData.Type = ModuleTypes.Color;
                     UpdateModules();
                     return;
                 }
-
-                // Sensor
-                var iasZoneCluster = endpoint?.GetInputCluster(ZclIasZoneCluster.CLUSTER_ID);
-                if (iasZoneCluster != null)
+                if (iasZone || occupancySensing || illuminanceMeasurement || temperatureMeasurement || windowCovering || electricalMeasurement || metering)
                 {
-                    byte level = (byte)(await iasZoneCluster.ReadAttributeValue(ZclIasZoneCluster.ATTR_ZONESTATUS));
-                    OnInterfacePropertyChanged
-                    (
-                        this.GetDomain(),
-                        node.IeeeAddress.ToString(),
-                        "ZigBee Node",
-                        ModuleEvents.Status_Level,
-                        level
-                    );
                     module.CustomData.Type = ModuleTypes.Sensor;
                     UpdateModules();
+                    return;
+                }
+                if (onOff)
+                {
+                    module.CustomData.Type = ModuleTypes.Switch;
+                    UpdateModules();
+                    return;
                 }
             }
         }
@@ -735,6 +810,7 @@ namespace MIG.Interfaces.HomeAutomation
         }
         public void CommandReceived(ZigBeeCommand command)
         {
+            MigService.Log.Debug(command);
             // TODO: parse / handle received commands
             if (_zigBee != null)
             {
@@ -751,7 +827,6 @@ namespace MIG.Interfaces.HomeAutomation
                     switch (command.ClusterId)
                     {
                         case ZclTemperatureMeasurementCluster.CLUSTER_ID:
-                            CheckType(node, ModuleTypes.Sensor);
                             _zigBee.RouteEvent(
                                 node,
                                 "ZigBee Node",
@@ -760,7 +835,6 @@ namespace MIG.Interfaces.HomeAutomation
                             );
                             break;
                         case ZclRelativeHumidityMeasurementCluster.CLUSTER_ID:
-                            CheckType(node, ModuleTypes.Sensor);
                             _zigBee.RouteEvent(
                                 node,
                                 "ZigBee Node",
@@ -769,7 +843,6 @@ namespace MIG.Interfaces.HomeAutomation
                             );
                             break;
                         case ZclIlluminanceLevelSensingCluster.CLUSTER_ID:
-                            CheckType(node, ModuleTypes.Sensor);
                             _zigBee.RouteEvent(
                                 node,
                                 "ZigBee Node",
@@ -777,6 +850,25 @@ namespace MIG.Interfaces.HomeAutomation
                                 (UInt16)cmd.Reports[0].AttributeValue
                             );
                             break;
+                        case ZclOnOffCluster.CLUSTER_ID:
+                            _zigBee.RouteEvent(
+                                node,
+                                "ZigBee Node",
+                                ModuleEvents.Status_Level,
+                                (Boolean)cmd.Reports[0].AttributeValue ? 1 : 0
+                            );
+                            break;
+                        case ZclLevelControlCluster.CLUSTER_ID:
+                            _zigBee.RouteEvent(
+                                node,
+                                "ZigBee Node",
+                                ModuleEvents.Status_Level,
+                                (byte)cmd.Reports[0].AttributeValue / 254D
+                            );
+                            break;
+                                        
+                        // TODO: handle metering and electricalmeasurement ...
+
                     }
                 }
                 else if (command is ZoneStatusChangeNotificationCommand)
@@ -785,8 +877,6 @@ namespace MIG.Interfaces.HomeAutomation
                     switch (command.ClusterId)
                     {
                         case ZclIasZoneCluster.CLUSTER_ID:
-                            // TODO: could map to generic "Sensor" or "DoorWindow"
-                            CheckType(node, ModuleTypes.Sensor);
                             _zigBee.RouteEvent(
                                 node,
                                 "ZigBee Node",
@@ -796,18 +886,13 @@ namespace MIG.Interfaces.HomeAutomation
                             break;
                     }
                 }
-            }
-            Console.WriteLine(command);
-        }
-
-        private void CheckType(ZigBeeNode node, ModuleTypes moduleType)
-        {
-            var module = _zigBee.GetModules().Find((m) => m.Address == node.IeeeAddress.ToString());
-            var moduleData = (module?.CustomData as ZigBeeNodeData);
-            if (module != null && moduleData != null && moduleData.Type == ModuleTypes.Generic)
-            {
-                moduleData.Type = moduleType;
-                _zigBee.UpdateModules();
+                else if (command is IdentifyQueryCommand)
+                {
+                    /// TODO: ?
+                    //var endpoint = node.GetEndpoints().FirstOrDefault();
+                    //new ZclIdentifyCluster(endpoint)
+                    //    .IdentifyQueryResponse(0);
+                }
             }
         }
     }

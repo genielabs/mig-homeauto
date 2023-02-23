@@ -12,6 +12,9 @@
     </ItemGroup>
 
     <ItemGroup>
+        <None Update="NLog.config">
+            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        </None>
       <None Update="systemconfig.xml">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>
