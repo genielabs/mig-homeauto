@@ -477,7 +477,7 @@ namespace MIG.Interfaces.HomeAutomation
                     };
                     modules.Add(module);
                 }
-                if (module.CustomData.Type == ModuleTypes.Generic)
+                if (module.CustomData.Type == ModuleTypes.Generic || String.IsNullOrEmpty(module.CustomData.ManufacturerName) || String.IsNullOrEmpty(module.CustomData.ModelIdentifier))
                 {
                     ControllerEvent("Controller.Status", "Added node " + node.IeeeAddress);
                     // get manufacturer name and model identifier
@@ -714,6 +714,8 @@ namespace MIG.Interfaces.HomeAutomation
                 }
                 ec++;
             }
+            bool updateModules = false;
+            var module = modules.Find((m) => m.Address == node.IeeeAddress.ToString());
             var defaultEndpoint = node.GetEndpoints().FirstOrDefault();
             if (defaultEndpoint != null)
             {
@@ -721,51 +723,50 @@ namespace MIG.Interfaces.HomeAutomation
                 var cluster = defaultEndpoint.GetInputCluster(ZclBasicCluster.CLUSTER_ID);
                 if (cluster != null)
                 {
+                    string manufacturerName = (string)(await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_MANUFACTURERNAME));
+                    if (manufacturerName != null)
+                    {
+                        (module?.CustomData as ZigBeeNodeData).ManufacturerName = manufacturerName; 
+                        OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", EventPath_ManufacturerName, manufacturerName);
+                    }
+                    string modelIdentifier = (string)(await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_MODELIDENTIFIER));
+                    if (modelIdentifier != null)
+                    {
+                        (module?.CustomData as ZigBeeNodeData).ModelIdentifier = modelIdentifier; 
+                        OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", EventPath_ModelIdentifier, modelIdentifier);
+                    }
                     var genericDeviceType = (await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_GENERICDEVICETYPE));
                     if (genericDeviceType != null)
                     {
                         OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", EventPath_GenericDeviceType, genericDeviceType);
                     }
-                    string modelIdentifier = (string)(await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_MODELIDENTIFIER));
-                    if (modelIdentifier != null)
-                    {
-                        OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", EventPath_ModelIdentifier, modelIdentifier);
-                    }
-                    string manufacturerName = (string)(await cluster.ReadAttributeValue(ZclBasicCluster.ATTR_MANUFACTURERNAME));
-                    if (manufacturerName != null)
-                    {
-                        OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", EventPath_ManufacturerName, manufacturerName);
-                    }
+                    updateModules = manufacturerName != null || modelIdentifier != null || genericDeviceType != null;
                 }
             }
             // Probe device type
-            var module = modules.Find((m) => m.Address == node.IeeeAddress.ToString());
             if (module != null && module.CustomData.Type == ModuleTypes.Generic)
             {
                 if (colorControl)
                 {
                     module.CustomData.Type = ModuleTypes.Color;
-                    UpdateModules();
-                    return;
                 }
-                if (levelControl && !occupancySensing)
+                else if (levelControl && !occupancySensing)
                 {
                     module.CustomData.Type = ModuleTypes.Color;
-                    UpdateModules();
-                    return;
                 }
-                if (iasZone || occupancySensing || illuminanceMeasurement || temperatureMeasurement || windowCovering || electricalMeasurement || metering)
+                else if (iasZone || occupancySensing || illuminanceMeasurement || temperatureMeasurement || windowCovering || electricalMeasurement || metering)
                 {
                     module.CustomData.Type = ModuleTypes.Sensor;
-                    UpdateModules();
-                    return;
                 }
-                if (onOff)
+                else if (onOff)
                 {
                     module.CustomData.Type = ModuleTypes.Switch;
-                    UpdateModules();
-                    return;
                 }
+                updateModules = updateModules || module.CustomData.Type != ModuleTypes.Generic;
+            }
+            if (updateModules)
+            {
+                UpdateModules();
             }
         }
 
@@ -798,6 +799,8 @@ namespace MIG.Interfaces.HomeAutomation
         public double LastLevel;
         public ushort Transition = 4; // 400ms
         public ModuleTypes Type = ModuleTypes.Generic;
+        public string ManufacturerName = "";
+        public string ModelIdentifier = "";
     }
     
     public class ZigBeeCommandListener : IZigBeeCommandListener
