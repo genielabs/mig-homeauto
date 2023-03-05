@@ -566,7 +566,7 @@ namespace MIG.Interfaces.HomeAutomation
 
         private void UpdateModuleLevel(InterfaceModule module)
         {
-            OnInterfacePropertyChanged(module.Domain, module.Address, "X10 Module", ModuleEvents.Status_Level, module.CustomData.ToString(CultureInfo.InvariantCulture));
+            OnInterfacePropertyChanged(module.Domain, module.Address, "X10 Module", ModuleEvents.Status_Level, module.CustomData.Level.ToString(CultureInfo.InvariantCulture));
         }
         
         #endregion
