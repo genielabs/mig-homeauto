@@ -360,12 +360,21 @@ namespace MIG.Interfaces.HomeAutomation
             // load cached modules
             DeserializeModules(ZigBeeModulesDb, modules);
             // initialize controller
-            string portName = this.GetOption("Port").Value;
+            string portName = this.GetOption("Port")?.Value;
             if (String.IsNullOrEmpty(portName))
             {
                 return false;
             }
-            zigbeePort = new ZigBeeSerialPort(portName, 115200);
+
+            string fc = this.GetOption("FlowControl")?.Value;
+            var flowControl = fc == "1" ? FlowControl.FLOWCONTROL_OUT_XONOFF : fc == "2" ? FlowControl.FLOWCONTROL_OUT_RTSCTS : FlowControl.FLOWCONTROL_OUT_NONE;
+            string br = this.GetOption("BaudRate")?.Value;
+            if (!int.TryParse(br, out var baudRate))
+            {
+                baudRate = 115200;
+            }
+
+            zigbeePort = new ZigBeeSerialPort(portName, baudRate, flowControl);
 
             string driverName = this.GetOption("Driver").Value;
             if (String.IsNullOrEmpty(driverName))
