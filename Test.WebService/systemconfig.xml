@@ -30,6 +30,8 @@
   <Interface Domain="HomeAutomation.ZigBee" IsEnabled="true" AssemblyName="MIG.HomeAutomation.dll">
     <Options>
       <Option Name="Port" Value="/dev/ttyACM0" />
+      <Option Name="BaudRate" Value="115200" />
+      <Option Name="FlowControl" Value="0" />
       <Option Name="Driver" Value="conbee" />
     </Options>
   </Interface>
