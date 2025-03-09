@@ -8,9 +8,9 @@
     <PackageLicense>./LICENSE</PackageLicense>
     <PackageProjectUrl>https://github.com/genielabs/mig-homeauto/</PackageProjectUrl>
     <PackageTags>mig interface mig-service homeautomation x10 zwave</PackageTags>
-    <RuntimeIdentifiers>win8-arm;linux-arm;win10-x64;osx.10.11-x64;linux-x64</RuntimeIdentifiers>
+    <RuntimeIdentifiers>linux-arm;linux-arm64;win-x64;osx-x64;linux-x64</RuntimeIdentifiers>
     <OutputType>Library</OutputType>
-    <TargetFrameworks>net472;net6.0;netstandard2.0</TargetFrameworks>
+    <TargetFrameworks>net6.0;netstandard2.0;net472;net9.0</TargetFrameworks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,6 +25,6 @@
     <PackageReference Include="ZigbeeNet.Hardware.Ember" Version="1.5.0" />
     <PackageReference Include="ZigBeeNet.Hardware.TI.CC2531" Version="1.5.0" />
     <PackageReference Include="ZigBeeNet.Transport.SerialPort" Version="1.5.0" />
-    <PackageReference Include="ZWaveLib" Version="1.1.2" />
+    <PackageReference Include="ZWaveLib" Version="1.1.3" />
   </ItemGroup>
 </Project>

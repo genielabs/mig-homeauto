@@ -8,7 +8,7 @@ namespace MIG.HomeAutomation.Tests
         [Test]
         public void Test1()
         {
-            Assert.True(true);
+            Assert.Pass();
         }
     }
 }
