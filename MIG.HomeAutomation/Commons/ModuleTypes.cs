@@ -14,10 +14,10 @@ namespace MIG.Interfaces.HomeAutomation.Commons
         Fan,
         Thermostat,
         Shutter,
+        Motor,
         DoorWindow,
         DoorLock,
         MediaTransmitter,
         MediaReceiver
-        //siren, alarm, motion sensor, door sensor, thermal sensor, etc.
     }
 }
