@@ -19,7 +19,7 @@
     </Gateway>
 </Gateways>
 <Interfaces>
-  <Interface Domain="Protocols.UPnP" IsEnabled="false" AssemblyName="MIG.Protocols.dll">
+  <Interface Domain="Protocols.UPnP" IsEnabled="true" AssemblyName="MIG.Protocols.dll">
     <Options />
   </Interface>
   <Interface Domain="HomeAutomation.ZWave" IsEnabled="false" AssemblyName="MIG.HomeAutomation.dll">
@@ -39,7 +39,7 @@
     <Options>
       <!-- set Value to "USB" for CM15, "CM19" for CM19 and the serial port path for CM11 -->
       <Option Name="Port" Value="USB" />
-      <Option Name="HouseCodes" Value="B,C" />
+      <Option Name="HouseCodes" Value="A,B,C" />
     </Options>
   </Interface>
 </Interfaces>

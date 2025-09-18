@@ -17,7 +17,10 @@
 */
 
 using System.Xml.Serialization;
-
+using GLabs.Logging;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using MIG;
 using MIG.Config;
 
@@ -29,17 +32,33 @@ namespace Test.WebService
         {
             var migService = new MigService();
 
+            var configuration = new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile("appsettings.json", optional: false)
+                .Build();
+
+            var serviceProvider = new ServiceCollection()
+                .AddLogging(builder =>
+                {
+                    builder.AddConfiguration(configuration.GetSection("Logging"));
+                    builder.AddConsole();
+                })
+                .BuildServiceProvider();
+
+            var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+            LogManager.Initialize(loggerFactory);
+
             // Configuration can also be loaded from a file as shown below
-            MigServiceConfiguration configuration;
+            MigServiceConfiguration migConfiguration;
             // Construct an instance of the XmlSerializer with the type
             // of object that is being deserialized.
             XmlSerializer mySerializer = new XmlSerializer(typeof(MigServiceConfiguration));
             // To read the file, create a FileStream.
             FileStream myFileStream = new FileStream("systemconfig.xml", FileMode.Open);
             // Call the Deserialize method and cast to the object type.
-            configuration = (MigServiceConfiguration)mySerializer.Deserialize(myFileStream);
+            migConfiguration = (MigServiceConfiguration)mySerializer.Deserialize(myFileStream);
             // Set the configuration
-            migService.Configuration = configuration;
+            migService.Configuration = migConfiguration;
 
             migService.StartService();
 
