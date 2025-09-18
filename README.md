@@ -15,6 +15,7 @@ Implemented API domains:
 
 - **X10**: CM11, CM15, CM19
 - **Z-Wave**: most Z-Wave serial controllers
+- **Zigbee**: For a list of supported controllers, see [ZigbeeNet](https://github.com/Mr-Markus/ZigbeeNet)
 
 ## Related Projects
 
