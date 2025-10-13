@@ -8,8 +8,12 @@
 
 Implemented API domains:
 
-- [HomeAutomation.X10 API](https://genielabs.github.io/HomeGenie/api/mig/mig_api_x10.html)
-- [HomeAutomation.ZWave API](https://genielabs.github.io/HomeGenie/api/mig/mig_api_zwave.html)
+- HomeAutomation.X10
+- HomeAutomation.ZWave
+- HomeAutomation.ZigBee
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/genielabs/mig-homeauto)
+
 
 ## Supported Hardware
 
