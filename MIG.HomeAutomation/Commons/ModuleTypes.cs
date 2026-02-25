@@ -18,6 +18,7 @@ namespace MIG.Interfaces.HomeAutomation.Commons
         DoorWindow,
         DoorLock,
         MediaTransmitter,
-        MediaReceiver
+        MediaReceiver,
+        VideoInput
     }
 }

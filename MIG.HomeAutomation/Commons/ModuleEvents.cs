@@ -57,6 +57,8 @@ namespace MIG.Interfaces.HomeAutomation.Commons
             "Sensor.Generic";
         public static string Sensor_MotionDetect =
             "Sensor.MotionDetect";
+        public static string Sensor_ObjectDetect =
+            "Sensor.ObjectDetect";
         public static string Sensor_Temperature =
             "Sensor.Temperature";
         public static string Sensor_Luminance =
