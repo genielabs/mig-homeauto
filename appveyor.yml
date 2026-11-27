@@ -5,15 +5,10 @@ install:
       Invoke-WebRequest -Uri 'https://dot.net/v1/dotnet-install.ps1' -UseBasicParsing -OutFile "$env:temp\dotnet-install.ps1"
       & $env:temp\dotnet-install.ps1 -Architecture x64 -Version '10.0.100' -InstallDir "$env:ProgramFiles\dotnet"
 configuration: Release
-before_build:
-  - nuget restore
-build:
-  project: .\MIG.HomeAutomation.sln
-  verbosity: minimal
-test:
-  assemblies:
-    only:
-      - MIG.HomeAutomation.Tests/bin/Debug/MIG.HomeAutomation.Tests.dll
+build_script:
+  - dotnet build MIG.HomeAutomation.sln -c Release
+test_script:
+  - dotnet test MIG.HomeAutomation.Tests/MIG.HomeAutomation.Tests.csproj -c Release --no-build
 after_test:
   - ps: .\MIG.HomeAutomation\nuget_pack.ps1
 artifacts:
@@ -25,12 +20,5 @@ deploy:
       secure: QJoBiqbeg1z+3WRoH1IdXRsnXtvwS95U2Z89JH9DrnEhJYMYbRpKjUmGEbOU3OnDLFz8gKqzP8y7KpL226lCb/Y+W6CTt7EGouenMIKnzZBllZVvSG73LdhHgD8RbxIy
     draft: false
     prerelease: false    
-    on:
-      appveyor_repo_tag: true
-  - provider: NuGet
-    api_key:
-      secure: VLSz2Mm3RJU7/uhvY1kOSfewPUL43YB7sxMOadvqUyrIFcU2DV2S84mtuySIJJX0
-    skip_symbols: false
-    artifact: /.*\.nupkg/
     on:
       appveyor_repo_tag: true

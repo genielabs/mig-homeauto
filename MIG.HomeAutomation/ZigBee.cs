@@ -99,7 +99,9 @@ namespace MIG.Interfaces.HomeAutomation
             Thermostat_OperatingStateGet,
 
             DoorLock_Set,
-            DoorLock_Get
+            DoorLock_Get,
+            Binding_Get,
+            Binding_Ensure
         }
 
         // ZigBee specific events
@@ -134,7 +136,9 @@ namespace MIG.Interfaces.HomeAutomation
         private ZigBeeSerialPort zigbeePort;
         private IZigBeeTransportTransmit transportTransmit;
 
-        private string lastAddedNode;
+        private readonly object inclusionLock = new object();
+        private Inclusion pendingInclusion;
+        private readonly SemaphoreSlim bindingLock = new SemaphoreSlim(1);
         private string lastRemovedNode;
         private const string ZigBeeModulesDb = "zigbee_modules.xml";
 
@@ -191,6 +195,19 @@ namespace MIG.Interfaces.HomeAutomation
 
             Commands command;
             Enum.TryParse(request.Command.Replace(".", "_"), out command);
+            if (command == Commands.Binding_Get || command == Commands.Binding_Ensure)
+            {
+                if (request.Address.Length != 16 || !ulong.TryParse(request.Address, NumberStyles.AllowHexSpecifier,
+                        CultureInfo.InvariantCulture, out _) ||
+                    !byte.TryParse(request.GetOption(0), NumberStyles.None, CultureInfo.InvariantCulture, out var ep) ||
+                    ep < 1 || ep > 240 || !ZigBeeBinding.TryParseCluster(request.GetOption(1), out var clusterId))
+                    return new ResponseStatus(Status.Error, "Expected device IEEE address, endpoint (1-240) and cluster (0x0006 or 0x0008).");
+                var manager = networkManager;
+                var target = manager?.GetNode(new IeeeAddress(request.Address));
+                if (target == null || target.NetworkAddress == 0)
+                    return new ResponseStatus(Status.Error, "Unknown ZigBee device.");
+                return InspectBinding(manager, target, ep, clusterId, command == Commands.Binding_Ensure).GetAwaiter().GetResult();
+            }
             var node = networkManager.GetNode(new IeeeAddress(request.Address));
             
             // controller commands
@@ -201,21 +218,7 @@ namespace MIG.Interfaces.HomeAutomation
                 switch (command)
                 {
                     case Commands.Controller_NodeAdd:
-                        lastAddedNode = "";
-                        // Enable node pairing
-                        ZigBeeNode coord = networkManager.GetNode(0);
-                        coord.PermitJoin(true);
-                        for (int i = 0; i < NumberOfAddAttempts; i++)
-                        {
-                            if (!String.IsNullOrEmpty(lastAddedNode))
-                            {
-                                break;
-                            }
-                            Thread.Sleep(DelayBetweenAttempts);
-                        }
-                        coord.PermitJoin(false);
-                        returnValue = new ResponseStatus(Status.Ok, lastAddedNode);
-                        break;
+                        return IncludeNode(networkManager);
                     case Commands.Controller_NodeRemove:
                         var nodeId = request.GetOption(0);
                         var nodeToRemove = networkManager.GetNode(new IeeeAddress(nodeId));
@@ -386,7 +389,7 @@ namespace MIG.Interfaces.HomeAutomation
         {
             Disconnect();
             // load cached modules
-            DeserializeModules(ZigBeeModulesDb, modules);
+            lock (modules) DeserializeModules(ZigBeeModulesDb, modules);
             // initialize controller
             string portName = this.GetOption("Port")?.Value;
             if (String.IsNullOrEmpty(portName))
@@ -445,6 +448,7 @@ namespace MIG.Interfaces.HomeAutomation
             networkManager.AddNetworkNodeListener(new ZigBeeNetworkNodeListener(this));
             // Add other extensions
             networkManager.AddSupportedClientCluster(ZclOnOffCluster.CLUSTER_ID);
+            networkManager.AddSupportedClientCluster(ZclLevelControlCluster.CLUSTER_ID);
             networkManager.AddSupportedClientCluster(ZclColorControlCluster.CLUSTER_ID);
             networkManager.AddExtension(new ZigBeeBasicServerExtension());
             networkManager.AddExtension(new ZigBeeIasCieExtension());
@@ -466,6 +470,7 @@ namespace MIG.Interfaces.HomeAutomation
 
         public void Disconnect()
         {
+            lock (inclusionLock) pendingInclusion?.Completed.TrySetResult(null);
             if (networkManager != null && networkManager.Transport != null)
             {
                 zigbeePort.Close();
@@ -475,7 +480,7 @@ namespace MIG.Interfaces.HomeAutomation
                 transportTransmit = null;
                 networkManager = null;
             }
-            modules.Clear();
+            lock (modules) modules.Clear();
         }
 
         public bool IsDevicePresent()
@@ -500,21 +505,118 @@ namespace MIG.Interfaces.HomeAutomation
             return networkManager?.GetNode(nodeId);
         }
 
+        internal sealed class Inclusion
+        {
+            private readonly HashSet<string> known;
+            internal readonly TaskCompletionSource<ZigBeeNode> Completed = new TaskCompletionSource<ZigBeeNode>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            internal Inclusion(IEnumerable<string> knownAddresses)
+            {
+                known = new HashSet<string>(knownAddresses, StringComparer.OrdinalIgnoreCase);
+            }
+
+            internal void Observe(ZigBeeNode node)
+            {
+                if (node.NetworkAddress != 0 && node.IsDiscovered() && !known.Contains(node.IeeeAddress.ToString()))
+                    Completed.TrySetResult(node);
+            }
+        }
+
+        private ResponseStatus IncludeNode(ZigBeeNetworkManager manager)
+        {
+            Inclusion inclusion;
+            lock (inclusionLock)
+            {
+                if (pendingInclusion != null) return new ResponseStatus(Status.Error, "Inclusion already in progress.");
+                lock (modules)
+                    inclusion = new Inclusion(manager.Nodes.Select(n => n.IeeeAddress.ToString()).Concat(modules.Select(m => m.Address)));
+                pendingInclusion = inclusion;
+            }
+
+            ZigBeeNode coord = null;
+            ZigBeeNode added = null;
+            try
+            {
+                coord = manager.GetNode(0);
+                if (coord == null) return new ResponseStatus(Status.Error, "Coordinator unavailable.");
+                coord.PermitJoin(true);
+                if (inclusion.Completed.Task.Wait(NumberOfAddAttempts * DelayBetweenAttempts))
+                    added = inclusion.Completed.Task.Result;
+            }
+            finally
+            {
+                try
+                {
+                    if (manager == networkManager) coord?.PermitJoin(false);
+                }
+                finally
+                {
+                    lock (inclusionLock) pendingInclusion = null;
+                }
+            }
+            if (added != null) _ = Task.Run(() => ConfigureIncludedLoad(manager, added));
+            return new ResponseStatus(Status.Ok, added?.IeeeAddress.ToString() ?? "");
+        }
+
+        private async Task ConfigureIncludedLoad(ZigBeeNetworkManager manager, ZigBeeNode node)
+        {
+            try
+            {
+                foreach (var ep in node.GetEndpoints().Where(e => ZigBeeBinding.IsLoadEndpoint(e.ProfileId, e.DeviceId)))
+                {
+                    foreach (var cluster in ep.GetInputClusterIds().Where(id => id == ZclOnOffCluster.CLUSTER_ID || id == ZclLevelControlCluster.CLUSTER_ID))
+                    {
+                        if (networkManager != manager) return;
+                        var result = await InspectBinding(manager, node, ep.EndpointId, (ushort)cluster, true).ConfigureAwait(false);
+                        if (manager == networkManager)
+                            RouteEvent(node, "ZigBee binding", $"ZigBeeNode.Binding.{ep.EndpointId}.{cluster:X4}",
+                                result is ZigBeeBinding binding ? binding.Outcome : result.Message);
+                    }
+                }
+            }
+            catch (Exception e) { MigService.Log.Debug($"ZigBee inclusion binding: {e.Message}"); }
+        }
+
+        private async Task<ResponseStatus> InspectBinding(ZigBeeNetworkManager manager, ZigBeeNode node, byte ep, ushort cluster, bool ensure)
+        {
+            await bindingLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                var coord = manager.GetNode(0);
+                if (manager != networkManager || coord == null || manager.GetNode(node.IeeeAddress) != node)
+                    return new ResponseStatus(Status.Error, "Device or coordinator unavailable.");
+                var binding = new ZigBeeBinding(node, ep, cluster, coord.IeeeAddress);
+                await binding.Inspect(ensure).ConfigureAwait(false);
+                return binding;
+            }
+            catch (Exception e) { return new ResponseStatus(Status.Error, e.Message); }
+            finally { bindingLock.Release(); }
+        }
+
+        private void ObserveInclusion(ZigBeeNode node)
+        {
+            lock (inclusionLock)
+            {
+                if (pendingInclusion != null && networkManager?.GetNode(node.IeeeAddress) == node)
+                    pendingInclusion.Observe(node);
+            }
+        }
+
         public void AddNode(ZigBeeNode node)
         {
             if (node.LogicalType == NodeDescriptor.LogicalType.ROUTER || node.LogicalType == NodeDescriptor.LogicalType.END_DEVICE)
             {
                 string address = node.IeeeAddress.ToString();
-                var module = modules.Find((m) => m.Address == address);
-                if (module == null)
+                InterfaceModule module;
+                lock (modules)
                 {
-                    module = new InterfaceModule()
+                    module = modules.Find(m => m.Address == address);
+                    if (module == null)
                     {
-                        Domain = "HomeAutomation.ZigBee",
-                        Address = address,
-                        CustomData = new ZigBeeNodeData()
-                    };
-                    modules.Add(module);
+                        module = new InterfaceModule { Domain = "HomeAutomation.ZigBee", Address = address, CustomData = new ZigBeeNodeData() };
+                        modules.Add(module);
+                    }
                 }
                 if (module.CustomData.Type == ModuleTypes.Generic || String.IsNullOrEmpty(module.CustomData.ManufacturerName) || String.IsNullOrEmpty(module.CustomData.ModelIdentifier))
                 {
@@ -533,17 +635,18 @@ namespace MIG.Interfaces.HomeAutomation
                         }
 
                         OnInterfaceModulesChanged(this.GetDomain());
-                        lastAddedNode = node.IeeeAddress.ToString();
                     });
                     t.Start();
                     t.Join();
                 }
+                ObserveInclusion(node);
             }
         }
 
         public void RemoveNode(ZigBeeNode node)
         {
-            int removed = modules.RemoveAll((m) => m.Address == node.IeeeAddress.ToString());
+            int removed;
+            lock (modules) removed = modules.RemoveAll(m => m.Address == node.IeeeAddress.ToString());
             if (removed > 0)
             {
                 ControllerEvent("Controller.Status", "Removed node " + node.IeeeAddress);
@@ -554,7 +657,7 @@ namespace MIG.Interfaces.HomeAutomation
 
         public void UpdateNode(ZigBeeNode node)
         {
-            // TODO: ....
+            ObserveInclusion(node);
         }
 
         public void UpdateModules()
