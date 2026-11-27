@@ -147,6 +147,13 @@ namespace MIG.Interfaces.HomeAutomation
 
         public bool IsEnabled { get; set; }
 
+        public ZigBee() { }
+
+        internal ZigBee(ZigBeeNetworkManager manager)
+        {
+            networkManager = manager;
+        }
+
         public List<Option> Options { get; set; }
 
         public void OnSetOption(Option option)
@@ -260,8 +267,32 @@ namespace MIG.Interfaces.HomeAutomation
             {
                 return new ResponseStatus(Status.Error, "Could not get node instance.");
             }
-            // Get node endpoint
+            if (command == Commands.Basic_Get)
+            {
+                try
+                {
+                    return ReadClusterLevelData(node).GetAwaiter().GetResult()
+                        ? new ResponseStatus(Status.Ok)
+                        : new ResponseStatus(Status.Error, "No on/off or level value available.");
+                }
+                catch (Exception e)
+                {
+                    return new ResponseStatus(Status.Error, e.Message);
+                }
+            }
+            // Target the endpoint advertising the command, including on multi-endpoint lights.
             var endpoint = node.GetEndpoints().FirstOrDefault();
+            int requiredCluster = -1;
+            switch (command)
+            {
+                case Commands.Control_On:
+                case Commands.Control_Off:
+                case Commands.Control_Toggle: requiredCluster = ZclOnOffCluster.CLUSTER_ID; break;
+                case Commands.Control_Level: requiredCluster = ZclLevelControlCluster.CLUSTER_ID; break;
+                case Commands.Control_ColorHsb: requiredCluster = ZclColorControlCluster.CLUSTER_ID; break;
+            }
+            if (requiredCluster >= 0)
+                endpoint = node.GetEndpoints().FirstOrDefault(e => e.GetInputClusterIds().Contains(requiredCluster));
             if (endpoint == null)
             {
                 return new ResponseStatus(Status.Error, "Could not determine node endpoint address.");
@@ -270,13 +301,10 @@ namespace MIG.Interfaces.HomeAutomation
 
             switch (command)
             {
-                case Commands.Basic_Get:
-                    ReadClusterLevelData(node, endpoint);
-                    break;
                 case Commands.Control_On:
                     networkManager
                         .Send(endpointAddress, new OnCommand());
-                    nodeData.Level = nodeData.LastLevel > 0 ? nodeData.LastLevel : 1;
+                    nodeData.SetOnOff(true);
                     eventValue = nodeData.Level.ToString(CultureInfo.InvariantCulture);
                     raiseEvent = true;
                     break;
@@ -290,9 +318,9 @@ namespace MIG.Interfaces.HomeAutomation
                     break;
 
                 case Commands.Control_Toggle:
+                    nodeData.SetOnOff(nodeData.Level <= 0);
                     networkManager
                         .Send(endpointAddress, new ToggleCommand());
-                    nodeData.Level = nodeData.Level > 0 ? 0 : nodeData.LastLevel;
                     eventValue = nodeData.Level.ToString(CultureInfo.InvariantCulture);
                     raiseEvent = true;
                     break;
@@ -397,7 +425,9 @@ namespace MIG.Interfaces.HomeAutomation
                     transportTransmit = new ZigbeeDongleConBee(zigbeePort); 
                     break;
             }
-            networkManager = new ZigBeeNetworkManager(transportTransmit);
+            networkManager = transportTransmit is ZigbeeDongleConBee conBee
+                ? new ConBeeNetworkManager(conBee)
+                : new ZigBeeNetworkManager(transportTransmit);
 
             var dataStore = new JsonNetworkDataStore(GetDbFullPath());
             networkManager.SetNetworkDataStore(dataStore);
@@ -467,7 +497,7 @@ namespace MIG.Interfaces.HomeAutomation
         
         public ZigBeeNode GetNode(ushort nodeId)
         {
-            return networkManager.GetNode(nodeId);
+            return networkManager?.GetNode(nodeId);
         }
 
         public void AddNode(ZigBeeNode node)
@@ -779,14 +809,123 @@ namespace MIG.Interfaces.HomeAutomation
             }
         }
 
-        private async Task ReadClusterLevelData(ZigBeeNode node, ZigBeeEndpoint endpoint)
+        private async Task<bool> ReadClusterLevelData(ZigBeeNode node)
         {
-            var cluster = endpoint.GetInputCluster(ZclLevelControlCluster.CLUSTER_ID);
-            if (cluster != null)
+            var endpoint = node.GetEndpoints().FirstOrDefault(e => e.GetInputClusterIds().Contains(ZclOnOffCluster.CLUSTER_ID))
+                ?? node.GetEndpoints().FirstOrDefault(e => e.GetInputClusterIds().Contains(ZclLevelControlCluster.CLUSTER_ID));
+            if (endpoint == null) return false;
+            var address = node.IeeeAddress.ToString();
+            var onOff = endpoint.GetInputCluster(ZclOnOffCluster.CLUSTER_ID);
+            var level = endpoint.GetInputCluster(ZclLevelControlCluster.CLUSTER_ID);
+            var on = onOff == null ? null : await onOff.ReadAttributeValue(ZclOnOffCluster.ATTR_ONOFF).ConfigureAwait(false);
+            if (!(on is false) && level != null)
             {
-                byte level = (byte)(await cluster.ReadAttributeValue(ZclLevelControlCluster.ATTR_CURRENTLEVEL));
-                OnInterfacePropertyChanged(this.GetDomain(), node.IeeeAddress.ToString(), "ZigBee Node", ModuleEvents.Status_Level, level / 254D);
+                var value = await level.ReadAttributeValue(ZclLevelControlCluster.ATTR_CURRENTLEVEL).ConfigureAwait(false);
+                if (value is byte current && current < byte.MaxValue)
+                {
+                    ReportAttribute(address, ZclLevelControlCluster.CLUSTER_ID, ZclLevelControlCluster.ATTR_CURRENTLEVEL, current);
+                    return true;
+                }
             }
+            if (!(on is bool)) return false;
+            ReportAttribute(address, ZclOnOffCluster.CLUSTER_ID, ZclOnOffCluster.ATTR_ONOFF, on);
+            return true;
+        }
+
+        internal void ReceiveReport(string address, ZigBeeCommand command)
+        {
+            string action = null;
+            switch (command)
+            {
+                case OnCommand _:
+                    action = "On";
+                    break;
+                case OffCommand _:
+                case OffWithEffectCommand _:
+                    action = "Off";
+                    break;
+                case StepCommand step when step.StepMode == 0:
+                    action = "BrightnessUp";
+                    break;
+                case StepCommand step when step.StepMode == 1:
+                    action = "BrightnessDown";
+                    break;
+                case StopCommand _:
+                    action = "BrightnessStop";
+                    break;
+            }
+            if (action != null)
+                OnInterfacePropertyChanged(this.GetDomain(), address, "ZigBee Remote", ModuleEvents.Receiver_Action, action);
+            else if (command is ZoneStatusChangeNotificationCommand zone && command.ClusterId == ZclIasZoneCluster.CLUSTER_ID)
+                ReportZoneStatus(address, zone.ZoneStatus);
+            else if (command is ReportAttributesCommand attributes && attributes.Reports != null)
+                foreach (var report in attributes.Reports)
+                    ReportAttribute(address, command.ClusterId, report.AttributeIdentifier, report.AttributeValue);
+        }
+
+        private void ReportAttribute(string address, ushort cluster, ushort attribute, object value)
+        {
+            void Publish(string path, object reading) => OnInterfacePropertyChanged(this.GetDomain(), address, "ZigBee Node", path, reading);
+            switch (cluster)
+            {
+                case ZclTemperatureMeasurementCluster.CLUSTER_ID when attribute == ZclTemperatureMeasurementCluster.ATTR_MEASUREDVALUE && value is short temperature && temperature >= -27315:
+                    Publish(ModuleEvents.Sensor_Temperature, temperature / 100D);
+                    break;
+                case ZclRelativeHumidityMeasurementCluster.CLUSTER_ID when attribute == ZclRelativeHumidityMeasurementCluster.ATTR_MEASUREDVALUE && value is ushort humidity && humidity <= 10000:
+                    Publish(ModuleEvents.Sensor_Humidity, humidity / 100D);
+                    break;
+                case ZclIlluminanceMeasurementCluster.CLUSTER_ID when attribute == ZclIlluminanceMeasurementCluster.ATTR_MEASUREDVALUE && value is ushort measured && measured != ushort.MaxValue:
+                    Publish(ModuleEvents.Sensor_Luminance, measured == 0 ? 0D : Math.Pow(10, (measured - 1) / 10000D));
+                    break;
+                case ZclIlluminanceLevelSensingCluster.CLUSTER_ID when attribute == ZclIlluminanceLevelSensingCluster.ATTR_LEVELSTATUS && value is byte status && status <= 2:
+                    Publish("ZigBeeNode.IlluminanceLevelStatus", status);
+                    break;
+                case ZclOccupancySensingCluster.CLUSTER_ID when attribute == ZclOccupancySensingCluster.ATTR_OCCUPANCY && value is byte occupancy:
+                    Publish(ModuleEvents.Sensor_MotionDetect, occupancy & 1);
+                    break;
+                case ZclIasZoneCluster.CLUSTER_ID when attribute == ZclIasZoneCluster.ATTR_ZONESTATUS && value is ushort zone:
+                    ReportZoneStatus(address, zone);
+                    break;
+                case ZclOnOffCluster.CLUSTER_ID when attribute == ZclOnOffCluster.ATTR_ONOFF && value is bool on:
+                    var switchData = modules.Find(m => m.Address == address)?.CustomData as ZigBeeNodeData;
+                    switchData?.SetOnOff(on);
+                    Publish(ModuleEvents.Status_Level, switchData?.Level ?? (on ? 1D : 0D));
+                    break;
+                case ZclLevelControlCluster.CLUSTER_ID when attribute == ZclLevelControlCluster.ATTR_CURRENTLEVEL && value is byte level && level != byte.MaxValue:
+                    var dimmerData = modules.Find(m => m.Address == address)?.CustomData as ZigBeeNodeData;
+                    if (dimmerData != null) dimmerData.Level = level / 254D;
+                    Publish(ModuleEvents.Status_Level, level / 254D);
+                    break;
+            }
+        }
+
+        private void ReportZoneStatus(string address, ushort value)
+        {
+            void Publish(string path, int reading) => OnInterfacePropertyChanged(this.GetDomain(), address, "ZigBee Node", path, reading);
+            var status = (IasZoneStatusBitmap)value;
+            Publish("ZigBeeNode.ZoneStatus", value);
+            Publish(ModuleEvents.Status_Level, (status & (IasZoneStatusBitmap.ALARM_1 | IasZoneStatusBitmap.ALARM_2)) != 0 ? 1 : 0);
+            Publish(ModuleEvents.Sensor_Tamper, (status & IasZoneStatusBitmap.TAMPER) != 0 ? 1 : 0);
+            Publish("ZigBeeNode.BatteryLow", (status & IasZoneStatusBitmap.BATTERY) != 0 ? 1 : 0);
+        }
+    }
+
+    internal sealed class ConBeeNetworkManager : ZigBeeNetworkManager, IZigBeeTransportReceive
+    {
+        internal ConBeeNetworkManager(ZigbeeDongleConBee transport) : base(transport) { }
+
+        void IZigBeeTransportReceive.ReceiveCommand(ZigBeeApsFrame frame)
+        {
+            // ConBee 1.5.0 places the group ID in DestinationAddress and can deliver
+            // group commands with endpoint 0. ZigBeeNet accepts endpoint 1 or 0xFF for ZCL.
+            if (frame.Profile == 0x0104 && frame.DestinationEndpoint == 0 &&
+                frame.DestinationAddress != 0 && frame.DestinationAddress != LocalNwkAddress && frame.DestinationAddress < 0xFFF8 &&
+                (frame.Cluster == ZclOnOffCluster.CLUSTER_ID || frame.Cluster == ZclLevelControlCluster.CLUSTER_ID) &&
+                frame.Payload != null && frame.Payload.Length >= 3 && (frame.Payload[0] & 0x0F) == 0x01)
+            {
+                frame.DestinationEndpoint = 0xFF;
+            }
+            base.ReceiveCommand(frame);
         }
     }
 
@@ -806,6 +945,10 @@ namespace MIG.Interfaces.HomeAutomation
             }
         }
         public double LastLevel;
+        public void SetOnOff(bool on)
+        {
+            Level = on ? (LastLevel > 0 ? LastLevel : 1) : 0;
+        }
         public ushort Transition = 4; // 400ms
         public ModuleTypes Type = ModuleTypes.Generic;
         public string ManufacturerName = "";
@@ -823,89 +966,13 @@ namespace MIG.Interfaces.HomeAutomation
         public void CommandReceived(ZigBeeCommand command)
         {
             MigService.Log.Debug(command);
-            // TODO: parse / handle received commands
-            if (_zigBee != null)
-            {
-                
-                var nodeId = command.SourceAddress.Address;
-                var node = _zigBee.GetNode(nodeId);
-                if (command is DeviceAnnounce)
-                {
-                    _zigBee.ControllerEvent("Controller.Status", "Announce node " + node.IeeeAddress);
-                }
-                else if (command is ReportAttributesCommand)
-                {
-                    var cmd = (ReportAttributesCommand)command;
-                    switch (command.ClusterId)
-                    {
-                        case ZclTemperatureMeasurementCluster.CLUSTER_ID:
-                            _zigBee.RouteEvent(
-                                node,
-                                "ZigBee Node",
-                                ModuleEvents.Sensor_Temperature,
-                                (Int16)cmd.Reports[0].AttributeValue / 100D
-                            );
-                            break;
-                        case ZclRelativeHumidityMeasurementCluster.CLUSTER_ID:
-                            _zigBee.RouteEvent(
-                                node,
-                                "ZigBee Node",
-                                ModuleEvents.Sensor_Humidity,
-                                (UInt16)cmd.Reports[0].AttributeValue / 100D
-                            );
-                            break;
-                        case ZclIlluminanceLevelSensingCluster.CLUSTER_ID:
-                            _zigBee.RouteEvent(
-                                node,
-                                "ZigBee Node",
-                                ModuleEvents.Sensor_Luminance,
-                                (UInt16)cmd.Reports[0].AttributeValue
-                            );
-                            break;
-                        case ZclOnOffCluster.CLUSTER_ID:
-                            _zigBee.RouteEvent(
-                                node,
-                                "ZigBee Node",
-                                ModuleEvents.Status_Level,
-                                (Boolean)cmd.Reports[0].AttributeValue ? 1 : 0
-                            );
-                            break;
-                        case ZclLevelControlCluster.CLUSTER_ID:
-                            _zigBee.RouteEvent(
-                                node,
-                                "ZigBee Node",
-                                ModuleEvents.Status_Level,
-                                (byte)cmd.Reports[0].AttributeValue / 254D
-                            );
-                            break;
-                                        
-                        // TODO: handle metering and electricalmeasurement ...
-
-                    }
-                }
-                else if (command is ZoneStatusChangeNotificationCommand)
-                {
-                    var cmd = (ZoneStatusChangeNotificationCommand)command;
-                    switch (command.ClusterId)
-                    {
-                        case ZclIasZoneCluster.CLUSTER_ID:
-                            _zigBee.RouteEvent(
-                                node,
-                                "ZigBee Node",
-                                ModuleEvents.Status_Level,
-                                (Int16)cmd.ZoneStatus
-                            );
-                            break;
-                    }
-                }
-                else if (command is IdentifyQueryCommand)
-                {
-                    /// TODO: ?
-                    //var endpoint = node.GetEndpoints().FirstOrDefault();
-                    //new ZclIdentifyCluster(endpoint)
-                    //    .IdentifyQueryResponse(0);
-                }
-            }
+            if (_zigBee == null || command.SourceAddress == null) return;
+            var node = _zigBee.GetNode(command.SourceAddress.Address);
+            if (node == null) return;
+            if (command is DeviceAnnounce)
+                _zigBee.ControllerEvent("Controller.Status", "Announce node " + node.IeeeAddress);
+            else
+                _zigBee.ReceiveReport(node.IeeeAddress.ToString(), command);
         }
     }
 

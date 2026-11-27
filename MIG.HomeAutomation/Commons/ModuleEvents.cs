@@ -89,6 +89,7 @@ namespace MIG.Interfaces.HomeAutomation.Commons
             "Sensor.Flood";
         public static string Sensor_Tamper =
             "Sensor.Tamper";
+        public const string Receiver_Action = "Receiver.Action";
         public static string Receiver_RawData = 
             "Receiver.RawData";
         public static string Receiver_Status = 

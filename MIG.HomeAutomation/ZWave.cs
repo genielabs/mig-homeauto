@@ -117,7 +117,9 @@ namespace MIG.Interfaces.HomeAutomation
             DoorLock_Get,
 
             Db_Update,
-            Db_GetDevice
+            Db_GetDevice,
+            Notification_SupportedGet,
+            Notification_EventSupportedGet
         }
 
         // Z-Wave specific events
@@ -467,6 +469,18 @@ namespace MIG.Interfaces.HomeAutomation
                     Meter.GetSupported(node);
                     break;
 
+                case Commands.Notification_SupportedGet:
+                    if (node == null)
+                        return new ResponseText("ERROR");
+                    Alarm.GetSupported(node);
+                    break;
+
+                case Commands.Notification_EventSupportedGet:
+                    if (node == null || !byte.TryParse(request.GetOption(0), out byte notificationType) || notificationType == 0)
+                        return new ResponseText("ERROR");
+                    Alarm.GetSupportedEvents(node, notificationType);
+                    break;
+
                 case Commands.Meter_Reset:
                     Meter.Reset(node);
                     break;
@@ -787,9 +801,13 @@ namespace MIG.Interfaces.HomeAutomation
 
         #region Public members
 
-        public ZWave()
+        public ZWave() : this(new ZWaveController())
         {
-            controller = new ZWaveController();
+        }
+
+        internal ZWave(ZWaveController controller)
+        {
+            this.controller = controller;
             controller.ControllerStatusChanged += Controller_ControllerStatusChanged;
             controller.DiscoveryProgress += Controller_DiscoveryProgress;
             controller.HealProgress += Controller_HealProgress;
@@ -1142,6 +1160,20 @@ namespace MIG.Interfaces.HomeAutomation
                         eventPath = "ZWaveNode.CentralScene.Notification";
                         if (eventValue is CentralSceneValue)
                             eventValue = (eventValue as CentralSceneValue).ToString();
+                        break;
+
+                    case EventParameter.MeterSupportedReport:
+                        eventPath = GetIndexedParameterPath("ZWaveNode.Meter.SupportedReport", eventData.Instance);
+                        eventValue = Newtonsoft.Json.JsonConvert.SerializeObject(eventValue);
+                        break;
+                    case EventParameter.NotificationSupportedReport:
+                        eventPath = GetIndexedParameterPath("ZWaveNode.Notification.SupportedReport", eventData.Instance);
+                        eventValue = Newtonsoft.Json.JsonConvert.SerializeObject(eventValue);
+                        break;
+                    case EventParameter.NotificationEventSupportedReport:
+                        var supported = (NotificationEventSupportedReport)eventValue;
+                        eventPath = GetIndexedParameterPath("ZWaveNode.Notification.SupportedEvents." + supported.Type, eventData.Instance);
+                        eventValue = Newtonsoft.Json.JsonConvert.SerializeObject(supported.Events);
                         break;
 
                     case EventParameter.CentralSceneSupportedReport:
