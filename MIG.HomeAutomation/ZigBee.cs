@@ -274,7 +274,7 @@ namespace MIG.Interfaces.HomeAutomation
             {
                 try
                 {
-                    return ReadClusterLevelData(node).GetAwaiter().GetResult()
+                    return ReadClusterLevelData(node, nodeData).GetAwaiter().GetResult()
                         ? new ResponseStatus(Status.Ok)
                         : new ResponseStatus(Status.Error, "No on/off or level value available.");
                 }
@@ -315,7 +315,7 @@ namespace MIG.Interfaces.HomeAutomation
                 case Commands.Control_Off:
                     networkManager
                         .Send(endpointAddress, new OffCommand());
-                    nodeData.Level = 0;
+                    nodeData.SetOnOff(false);
                     eventValue = nodeData.Level.ToString(CultureInfo.InvariantCulture);
                     raiseEvent = true;
                     break;
@@ -330,7 +330,7 @@ namespace MIG.Interfaces.HomeAutomation
 
                 case Commands.Control_Level:
                     var level = int.Parse(request.GetOption(0));
-                    nodeData.Level = (level / 100D);
+                    nodeData.SetLevelWithOnOff(level / 100D);
                     SetLevel(endpointAddress, level, nodeData.Transition);
                     eventValue = nodeData.Level.ToString(CultureInfo.InvariantCulture);
                     raiseEvent = true;
@@ -348,7 +348,7 @@ namespace MIG.Interfaces.HomeAutomation
                     double brightness = double.Parse(values[2], CultureInfo.InvariantCulture);
                     if (nodeData.Level != brightness)
                     {
-                        nodeData.Level = brightness;
+                        nodeData.SetLevelWithOnOff(brightness);
                         SetLevel(endpointAddress, (int)(brightness * 100), transition);
                     }
                     SetColorHsb
@@ -912,7 +912,7 @@ namespace MIG.Interfaces.HomeAutomation
             }
         }
 
-        private async Task<bool> ReadClusterLevelData(ZigBeeNode node)
+        private async Task<bool> ReadClusterLevelData(ZigBeeNode node, ZigBeeNodeData nodeData)
         {
             var endpoint = node.GetEndpoints().FirstOrDefault(e => e.GetInputClusterIds().Contains(ZclOnOffCluster.CLUSTER_ID))
                 ?? node.GetEndpoints().FirstOrDefault(e => e.GetInputClusterIds().Contains(ZclLevelControlCluster.CLUSTER_ID));
@@ -923,6 +923,7 @@ namespace MIG.Interfaces.HomeAutomation
             var on = onOff == null ? null : await onOff.ReadAttributeValue(ZclOnOffCluster.ATTR_ONOFF).ConfigureAwait(false);
             if (!(on is false) && level != null)
             {
+                if (on is true) nodeData?.SetOnOff(true);
                 var value = await level.ReadAttributeValue(ZclLevelControlCluster.ATTR_CURRENTLEVEL).ConfigureAwait(false);
                 if (value is byte current && current < byte.MaxValue)
                 {
@@ -996,8 +997,9 @@ namespace MIG.Interfaces.HomeAutomation
                     break;
                 case ZclLevelControlCluster.CLUSTER_ID when attribute == ZclLevelControlCluster.ATTR_CURRENTLEVEL && value is byte level && level != byte.MaxValue:
                     var dimmerData = modules.Find(m => m.Address == address)?.CustomData as ZigBeeNodeData;
-                    if (dimmerData != null) dimmerData.Level = level / 254D;
-                    Publish(ModuleEvents.Status_Level, level / 254D);
+                    double brightness = level / 254D;
+                    if (dimmerData == null || dimmerData.ApplyReportedLevel(brightness))
+                        Publish(ModuleEvents.Status_Level, brightness);
                     break;
             }
         }
@@ -1036,6 +1038,7 @@ namespace MIG.Interfaces.HomeAutomation
     public class ZigBeeNodeData
     {
         private double _level;
+        private bool explicitlyOff;
         public double Level {
             get => _level;
             set
@@ -1050,7 +1053,24 @@ namespace MIG.Interfaces.HomeAutomation
         public double LastLevel;
         public void SetOnOff(bool on)
         {
+            explicitlyOff = !on;
             Level = on ? (LastLevel > 0 ? LastLevel : 1) : 0;
+        }
+        internal void SetLevelWithOnOff(double brightness)
+        {
+            explicitlyOff = brightness == 0;
+            Level = brightness;
+        }
+        internal bool ApplyReportedLevel(double brightness)
+        {
+            // Some dimmers report their next power-on brightness while the output is off.
+            if (explicitlyOff)
+            {
+                if (brightness > 0) LastLevel = brightness;
+                return false;
+            }
+            Level = brightness;
+            return true;
         }
         public ushort Transition = 4; // 400ms
         public ModuleTypes Type = ModuleTypes.Generic;

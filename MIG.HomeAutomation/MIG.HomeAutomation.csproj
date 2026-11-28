@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <PackageId>MIG.HomeAutomation</PackageId>
-    <Version>1.4.1</Version>
+    <Version>1.4.2</Version>
     <Authors>Generoso Martello</Authors>
     <Company>G-Labs</Company>
     <Description>Interface for MIG service that adds HomeAutomation commands for controlling X10, Z-Wave and Zigbee devices.</Description>

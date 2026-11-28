@@ -94,6 +94,29 @@ public class ZigBeeReportTests
     }
 
     [Test]
+    public void StoredBrightnessReportAfterOffDoesNotTurnStudioAmbientBackOn()
+    {
+        var driver = new Driver();
+        var data = new ZigBeeNodeData();
+        driver.GetModules().Add(new InterfaceModule { Address = Address, CustomData = data });
+        // Replay the attribute payloads from Studio Ambient during the off transition.
+        driver.Report(8, 0, 0, 0x20, 0xA5);
+        driver.Report(6, 0, 0, 0x10, 0);
+        driver.Report(8, 0, 0, 0x20, 0xDC);
+        Assert.That(data.Level, Is.Zero);
+        Assert.That(data.LastLevel, Is.EqualTo(220 / 254D));
+        Assert.That(driver.Events, Is.EqualTo(new (string, object)[] {
+            ("Status.Level", 165 / 254D), ("Status.Level", 0D)
+        }));
+        driver.Events.Clear();
+        driver.Report(6, 0, 0, 0x10, 1);
+        driver.Report(8, 0, 0, 0x20, 127);
+        Assert.That(driver.Events, Is.EqualTo(new (string, object)[] {
+            ("Status.Level", 220 / 254D), ("Status.Level", 0.5)
+        }));
+    }
+
+    [Test]
     public void RemoteChangesUpdateTheLevelUsedForToggleAndPreserveTheLastBrightness()
     {
         var driver = new Driver();
